@@ -580,7 +580,6 @@ def run_dossier_logic(sheet):
         rows.append({norm_keys[i]: c for i, c in enumerate(row) if i < len(norm_keys)})
     
     for r_cells in rows:
-        # Extraer enlaces y valores
         base = {k: extract_link(v) if k in [key_map["link_nota"], key_map["link_streaming"]] else v.value for k, v in r_cells.items()}
         # Normalizar Tipo de Medio aquí
         if key_map.get("tipodemedio") in base:
@@ -770,7 +769,7 @@ def main():
             with st.expander("⚙️ Opcional: Usar Modelos Personalizados (.pkl)"):
                 st.info("Si subes un archivo aquí, se usará en lugar del análisis con IA (excepto para Subtema, que siempre usa IA).")
                 tono_pkl_file = st.file_uploader("Sube `pipeline_sentimiento.pkl` para Tono", type=["pkl"])
-                tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl")
+                tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
 
             if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
                 if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
@@ -796,7 +795,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.2 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
