@@ -169,7 +169,7 @@ MARCADORES_CONDICIONALES = [
 ]
 
 POS_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARIANTS]
-NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARANTS]
+NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS] # <<< LÍNEA CORREGIDA
 
 # ======================================
 # Estilos CSS Mejorados
@@ -289,8 +289,8 @@ def call_with_retries(api_func, *args, **kwargs):
     for attempt in range(max_retries):
         try:
             return api_func(*args, **kwargs)
-        except Exception:
-            if attempt == max_retries - 1: raise
+        except Exception as e:
+            if attempt == max_retries - 1: raise e
             time.sleep(delay)
             delay *= 2
 
@@ -300,8 +300,8 @@ async def acall_with_retries(api_func, *args, **kwargs):
     for attempt in range(max_retries):
         try:
             return await api_func(*args, **kwargs)
-        except Exception:
-            if attempt == max_retries - 1: raise
+        except Exception as e:
+            if attempt == max_retries - 1: raise e
             await asyncio.sleep(delay)
             delay *= 2
 
@@ -418,7 +418,7 @@ def agrupar_textos_similares(textos: List[str], umbral_similitud: float) -> Dict
     if not textos: return {}
     embs = [get_embedding(t) for t in textos]
     valid_indices = [i for i, e in enumerate(embs) if e is not None]
-    if not valid_indices: return {}
+    if len(valid_indices) < 2: return {}
     emb_matrix = np.array([embs[i] for i in valid_indices])
     
     clustering = AgglomerativeClustering(
@@ -529,7 +529,7 @@ def decidir_tono(features: Dict[str, Any]) -> Tuple[str, str]:
 class ClasificadorTonoUltraV2:
     def __init__(self, marca: str, aliases: List[str]):
         self.marca, self.aliases = marca, aliases or []
-
+    
     async def _clasificar_grupo_async(self, texto_representante: str, semaphore: asyncio.Semaphore):
         async with semaphore:
             feats = analizar_contexto_tono(texto_representante, self.marca, self.aliases)
@@ -539,22 +539,39 @@ class ClasificadorTonoUltraV2:
     async def procesar_lote_async(self, textos_concat: pd.Series, progress_bar, resumen_puro: Optional[pd.Series] = None, titulos_puros: Optional[pd.Series] = None):
         textos, n = textos_concat.tolist(), len(textos_concat)
         progress_bar.progress(0.05, text="🔄 Agrupando noticias similares para tono...")
-        dsu = type("DSU", (), {"p": list(range(n)), "find": lambda self, i: i if self.p[i] == i else self.find(self.p[i]), "union": lambda self, i, j: self.p.update({self.find(j): self.find(i)}) or None})()
-        for g in [agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_TONO), agrupar_por_titulo_similar(titulos_puros.astype(str).tolist()), agrupar_por_resumen_puro(resumen_puro.astype(str).tolist())]:
+        
+        class DSU:
+            def __init__(self, n): self.p = list(range(n))
+            def find(self, i):
+                if self.p[i] == i: return i
+                self.p[i] = self.find(self.p[i])
+                return self.p[i]
+            def union(self, i, j): self.p[self.find(j)] = self.find(i)
+
+        dsu = DSU(n)
+        for g in [
+            agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_TONO), 
+            agrupar_por_titulo_similar(titulos_puros.astype(str).tolist() if titulos_puros is not None else []), 
+            agrupar_por_resumen_puro(resumen_puro.astype(str).tolist() if resumen_puro is not None else [])
+        ]:
             for _, idxs in g.items():
                 for j in idxs[1:]: dsu.union(idxs[0], j)
+        
         comp = defaultdict(list)
         for i in range(n): comp[dsu.find(i)].append(i)
         
         representantes = {cid: seleccionar_representante(idxs, textos)[1] for cid, idxs in comp.items()}
-        semaphore, tasks = asyncio.Semaphore(CONCURRENT_REQUESTS), [self._clasificar_grupo_async(rep_texto, semaphore) for rep_texto in representantes.values()]
+        semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS)
+        tasks = [self._clasificar_grupo_async(rep_texto, semaphore) for rep_texto in representantes.values()]
         
-        resultados_por_grupo = {list(representantes.keys())[i]: res for i, res in enumerate(await asyncio.gather(*tasks))}
+        resultados_brutos = await asyncio.gather(*tasks)
+        resultados_por_grupo = {list(representantes.keys())[i]: res for i, res in enumerate(resultados_brutos)}
         
         resultados_finales = [None] * n
         for cid, idxs in comp.items():
             r = resultados_por_grupo.get(cid, {"tono": "Neutro", "justificacion": "Sin datos"})
             for i in idxs: resultados_finales[i] = r
+            
         progress_bar.progress(1.0, text="✅ Análisis de tono completado")
         return resultados_finales
 
@@ -588,10 +605,20 @@ class ClasificadorTemaDinamico:
     def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar, resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
         textos, n = df_columna_resumen.tolist(), len(df_columna_resumen)
         progress_bar.progress(0.10, "🔍 Preparando agrupaciones para subtemas...")
-        dsu = type("DSU", (), {"p": list(range(n)), "find": lambda self, i: i if self.p[i] == i else self.find(self.p[i]), "union": lambda self, i, j: self.p.update({self.find(j): self.find(i)}) or None})()
+        
+        class DSU:
+            def __init__(self, n): self.p = list(range(n))
+            def find(self, i):
+                if self.p[i] == i: return i
+                self.p[i] = self.find(self.p[i])
+                return self.p[i]
+            def union(self, i, j): self.p[self.find(j)] = self.find(i)
+
+        dsu = DSU(n)
         for g in [agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_TEMAS), agrupar_por_titulo_similar(titulos_puros.astype(str).tolist()), agrupar_por_resumen_puro(resumen_puro.astype(str).tolist())]:
             for _, idxs in g.items():
                 for j in idxs[1:]: dsu.union(idxs[0], j)
+        
         comp = defaultdict(list)
         for i in range(n): comp[dsu.find(i)].append(i)
         
@@ -633,7 +660,7 @@ def clasificar_temas_con_xlsx(textos: List[str], xlsx_file: io.BytesIO, columna_
         st.error(f"❌ Error al procesar el archivo Excel de temas: {e}"); return None
 
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
-    p_bar.progress(0.1, text=f"📊 Consolidando subtemas en {NUM_TEMAS_PRINCIPALES} temas...")
+    p_bar.progress(0.6, text=f"📊 Consolidando subtemas en {NUM_TEMAS_PRINCIPALES} temas...")
     mapa_subtema_a_tema, subtemas_unicos = {}, list(set(s for s in subtemas if s != "Sin tema"))
     if not subtemas_unicos or len(subtemas_unicos) <= NUM_TEMAS_PRINCIPALES:
         p_bar.progress(1.0, "ℹ️ No se requiere consolidación."); return subtemas
@@ -649,7 +676,7 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     mapa_cluster_a_subtemas = defaultdict(list)
     for i, label in enumerate(clustering.labels_): mapa_cluster_a_subtemas[label].append(subtemas_validos[i])
 
-    p_bar.progress(0.6, "🧠 Generando nombres para los temas principales...")
+    p_bar.progress(0.8, "🧠 Generando nombres para los temas principales...")
     for cluster_id, lista_subtemas in mapa_cluster_a_subtemas.items():
         prompt = (f"Genera un nombre de TEMA principal (2-4 palabras) para agrupar estos subtemas:\n"
                   f"Subtemas: {', '.join(lista_subtemas[:10])}\nResponde solo con el nombre del tema.")
@@ -705,7 +732,9 @@ def run_dossier_logic(sheet):
         for j in range(i + 1, len(split_rows)):
             if split_rows[j]["is_duplicate"]: continue
             es_dup, cual = are_duplicates(split_rows[i], split_rows[j], key_map)
-            if es_dup: (split_rows[j if cual == "first" else i]).update({"is_duplicate": True, "idduplicada": split_rows[i if cual == "first" else j].get(key_map.get("idnoticia"), "")})
+            if es_dup:
+                winner_idx, loser_idx = (i, j) if cual == "first" else (j, i)
+                split_rows[loser_idx].update({"is_duplicate": True, "idduplicada": split_rows[winner_idx].get(key_map.get("idnoticia"), "")})
     return split_rows, key_map
 
 def generate_output_excel(all_processed_rows, key_map):
@@ -720,13 +749,21 @@ def generate_output_excel(all_processed_rows, key_map):
     for row_data in all_processed_rows:
         row_to_append, links_to_add = [], {}
         for col_idx, header in enumerate(final_order, 1):
-            val = row_data.get(norm_key(header))
-            if row_data.get("is_duplicate") and header in ["Tono AI", "Tema", "Subtema"]: val = "Duplicada"
+            nk_header = norm_key(header)
+            val = row_data.get(nk_header)
+            
+            if row_data.get("is_duplicate"):
+                if nk_header in [key_map['tonoai'], key_map['tema'], key_map['subtema'], key_map['justificaciontono']]:
+                    val = "Duplicada"
+                elif nk_header == key_map['idduplicada']:
+                    val = row_data.get(key_map['idduplicada'])
+
             if isinstance(val, dict) and "url" in val:
                 row_to_append.append(val.get("value", "Link"))
                 if val.get("url"): links_to_add[col_idx] = val["url"]
             else:
                 row_to_append.append(str(val) if val is not None else None)
+
         out_sheet.append(row_to_append)
         for col_idx, url in links_to_add.items():
             cell = out_sheet.cell(row=out_sheet.max_row, column=col_idx)
@@ -741,10 +778,14 @@ def generate_output_excel(all_processed_rows, key_map):
 # ======================================
 async def run_full_process_async(dossier_file, region_file, internet_file, brand_name, brand_aliases, tono_pkl_file, temas_xlsx_file, columna_tema):
     start_time = time.time()
-    try: openai.api_key, openai.aiosession.set(st.secrets["OPENAI_API_KEY"], None)
-    except Exception: st.error("❌ OPENAI_API_KEY no encontrado."); st.stop()
+    try:
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        openai.aiosession.set(None)
+    except Exception:
+        st.error("❌ OPENAI_API_KEY no encontrado en los Secrets de Streamlit.")
+        st.stop()
 
-    with st.status("📋 **Paso 1/2:** Limpieza, duplicados y mapeos", expanded=True) as s:
+    with st.status("📋 **Paso 1/3:** Limpieza, duplicados y mapeos", expanded=True) as s:
         all_processed_rows, key_map = run_dossier_logic(load_workbook(dossier_file, data_only=True).active)
         df_region, df_internet = pd.read_excel(region_file), pd.read_excel(internet_file)
         region_map = {str(k).lower().strip(): v for k, v in pd.Series(df_region.iloc[:, 1].values, index=df_region.iloc[:, 0]).to_dict().items()}
@@ -755,16 +796,14 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             if medio_key in internet_map:
                 row[key_map.get("medio")] = internet_map[medio_key]
                 row[key_map.get("tipodemedio")] = "Internet"
-        s.update(label="✅ **Paso 1/2:** Limpieza y mapeos completados", state="complete")
+        s.update(label="✅ **Paso 1/3:** Limpieza y mapeos completados", state="complete")
 
     rows_to_analyze = [row for row in all_processed_rows if not row.get("is_duplicate")]
     if rows_to_analyze:
         df_temp = pd.DataFrame(rows_to_analyze)
         df_temp["resumen_api"] = df_temp[key_map["titulo"]].fillna("").astype(str) + ". " + df_temp[key_map["resumen"]].fillna("").astype(str)
 
-        with st.status("🎯 **Paso 2/2:** Análisis de Tono y Tema con IA", expanded=True) as s:
-            st.write("Iniciando análisis...")
-            # --- Tono ---
+        with st.status("🎯 **Paso 2/3:** Análisis de Tono", expanded=True) as s:
             p_bar_tono = st.progress(0, "Preparando análisis de tono...")
             if tono_pkl_file:
                 p_bar_tono.progress(0.5, "🤖 Usando modelo de tono personalizado (.pkl)...")
@@ -773,11 +812,12 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 p_bar_tono.progress(1.0, "✅ Tono analizado con modelo PKL.")
             else:
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
-                resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar_tono, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
+                resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar_tono, df_temp.get(key_map["resumen"]), df_temp.get(key_map["titulo"]))
             df_temp[key_map["tonoai"]] = [res["tono"] for res in resultados_tono]
             df_temp[key_map["justificaciontono"]] = [res.get("justificacion", "") for res in resultados_tono]
+            s.update(label="✅ **Paso 2/3:** Tono analizado", state="complete")
 
-            # --- Tema y Subtema ---
+        with st.status("🏷️ **Paso 3/3:** Análisis de Tema y Subtema", expanded=True) as s:
             p_bar_temas = st.progress(0, "Preparando análisis de temas...")
             if temas_xlsx_file:
                 temas_finales = clasificar_temas_con_xlsx(df_temp["resumen_api"].tolist(), temas_xlsx_file, columna_tema, p_bar_temas)
@@ -790,7 +830,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 df_temp[key_map["subtema"]] = subtemas
                 temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar_temas)
                 df_temp[key_map["tema"]] = temas_principales
-            s.update(label="✅ **Paso 2/2:** Análisis de Tono y Tema completado", state="complete")
+            s.update(label="✅ **Paso 3/3:** Tema y Subtema identificados", state="complete")
         
         results_map = df_temp.set_index("original_index").to_dict("index")
         for row in all_processed_rows:
@@ -810,27 +850,27 @@ def main():
 
     if not st.session_state.get("processing_complete", False):
         with st.form("input_form"):
-            st.markdown("### 📂 Archivos de Entrada")
+            st.markdown("### 📂 Archivos de Entrada Obligatorios")
             col1, col2, col3 = st.columns(3)
             dossier_file = col1.file_uploader("**1. Dossier Principal** (.xlsx)", type=["xlsx"])
             region_file = col2.file_uploader("**2. Mapeo de Región** (.xlsx)", type=["xlsx"])
             internet_file = col3.file_uploader("**3. Mapeo Internet** (.xlsx)", type=["xlsx"])
             
-            st.markdown("### 🏢 Configuración de Marca")
+            st.markdown("### 🏢 Configuración de Marca Obligatoria")
             c1, c2 = st.columns([1, 2])
-            brand_name = c1.text_input("**Marca Principal**", placeholder="Ej: Popular")
-            brand_aliases_text = c2.text_area("**Alias, variaciones y voceros** (separados por ;)", placeholder="Ej: Popular;BanPop;CEO Juan Pérez;Carlos Pinedo", height=80)
+            brand_name = c1.text_input("**Marca Principal**", placeholder="Ej: Bancolombia")
+            brand_aliases_text = c2.text_area("**Alias y voceros** (separados por ;)", placeholder="Ej: Ban;Juan Carlos Mora", height=80)
 
             with st.expander("⚙️ Opciones Avanzadas de Personalización (Opcional)"):
                 st.info("Sube archivos aquí para anular el análisis por defecto y usar tus propios modelos o listas.")
-                tono_pkl_file = st.file_uploader("Sube tu modelo de Tono (.pkl)", type=["pkl"])
-                temas_xlsx_file = st.file_uploader("Sube tu lista de Temas (.xlsx)", type=["xlsx"])
+                tono_pkl_file = st.file_uploader("Sube tu modelo de Tono (.pkl)", type=["pkl"], help="El archivo debe ser un pipeline de Scikit-learn guardado con joblib.")
+                temas_xlsx_file = st.file_uploader("Sube tu lista de Temas (.xlsx)", type=["xlsx"], help="El archivo Excel debe tener una columna con la lista de temas a usar.")
                 columna_tema = st.text_input("Nombre de la columna de temas en el Excel", value="tema")
 
             submitted = st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary")
             if submitted:
                 if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
-                    st.error("❌ Faltan archivos o el nombre de la marca principal.")
+                    st.error("❌ Faltan archivos obligatorios o el nombre de la marca principal.")
                 else:
                     aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
                     asyncio.run(run_full_process_async(dossier_file, region_file, internet_file, brand_name, aliases, tono_pkl_file, temas_xlsx_file, columna_tema))
@@ -842,6 +882,7 @@ def main():
         c2.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #28a745;">{st.session_state.unique_rows}</div><div class="metric-label">✅ Únicas</div></div>', unsafe_allow_html=True)
         c3.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #ff7f0e;">{st.session_state.duplicates}</div><div class="metric-label">🔄 Duplicados</div></div>', unsafe_allow_html=True)
         c4.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #1f77b4;">{st.session_state.process_duration}</div><div class="metric-label">⏱️ Duración</div></div>', unsafe_allow_html=True)
+        
         st.markdown('<div class="success-card">', unsafe_allow_html=True)
         st.download_button("📥 **DESCARGAR INFORME**", data=st.session_state.output_data, file_name=st.session_state.output_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
         if st.button("🔄 **Nuevo Análisis**", use_container_width=True):
@@ -851,7 +892,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
