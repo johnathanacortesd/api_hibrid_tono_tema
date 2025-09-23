@@ -22,6 +22,7 @@ import asyncio
 import hashlib
 from typing import List, Dict, Tuple, Optional, Any
 import joblib # Importación para cargar modelos .pkl
+import gc     # Importación para el recolector de basura
 
 # ======================================
 # Configuracion general
@@ -40,8 +41,6 @@ CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
 SIMILARITY_THRESHOLD_TEMAS = 0.85
 SIMILARITY_THRESHOLD_TITULOS = 0.80
-MIN_SIMILITUD_TEMAS_CONSOLIDACION = 0.70
-MIN_CLUSTER_SIZE_TEMAS = 2
 MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 80
 NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
@@ -79,97 +78,15 @@ STOPWORDS_ES = set("""
  a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada
 """.split())
 
-POS_VARIANTS = [
-    r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?",
-    r"prepar(a|ando)",
-    r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)",
-    r"apertur(a|ar|ara|o|an)",
-    r"estren(a|o|ara|an|ando)",
-    r"habilit(a|o|ara|an|ando)",
-    r"disponible",
-    r"mejor(a|o|an|ando)",
-    r"optimiza|amplia|expande",
-    r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?",
-    r"crecimi?ento|aument(a|o|an|ando)",
-    r"gananci(a|as)|utilidad(es)?|benefici(o|os)",
-    r"expansion|crece|crecer",
-    r"inversion|invierte|invertir",
-    r"innova(cion|dor|ndo)|moderniza",
-    r"exito(so|sa)?|logr(o|os|a|an|ando)",
-    r"reconoci(miento|do|da)|premi(o|os|ada)",
-    r"lidera(zgo)?|lider",
-    r"consolida|fortalece",
-    r"oportunidad(es)?|potencial",
-    r"solucion(es)?|resuelve",
-    r"eficien(te|cia)",
-    r"calidad|excelencia",
-    r"satisfaccion|complace",
-    r"confianza|credibilidad",
-    r"sostenible|responsable",
-    r"compromiso|apoya|apoyar",
-    r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)",
-    r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)",
-    r"destaca(r|do|da|ndo)?",
-    r"supera(r|ndo|cion)?",
-    r"record|hito|milestone",
-    r"avanza(r|do|da|ndo)?",
-    r"benefici(a|o|ando|ar|ando)",
-    r"importante(s)?",
-    r"prioridad",
-    r"bienestar",
-    r"garantizar",
-    r"seguridad",
-    r"atencion",
-    r"expres(o|ó|ando)",
-    r"señala(r|do|ando)",
-    r"ratific(a|o|ando|ar)"
-]
-
-NEG_VARIANTS = [
-    r"demanda|denuncia|sanciona|multa|investiga|critica",
-    r"cae|baja|pierde|crisis|quiebra|default",
-    r"fraude|escandalo|irregularidad",
-    r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga",
-    r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora",
-    r"problema(s|tica|tico)?|dificultad(es)?",
-    r"retras(o|a|ar|ado)",
-    r"perdida(s)?|deficit",
-    r"conflict(o|os)?|disputa(s)?",
-    r"rechaz(a|o|ar|ado)",
-    r"negativ(o|a|os|as)",
-    r"preocupa(cion|nte|do)?",
-    r"alarma(nte)?|alerta",
-    r"riesgo(s)?|amenaza(s)?"
-]
-
-# LÉXICOS PARA CONTEXTO DE CRISIS
+POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
+NEG_VARIANTS = [r"demanda|denuncia|sanciona|multa|investiga|critica", r"cae|baja|pierde|crisis|quiebra|default", r"fraude|escandalo|irregularidad", r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga", r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora", r"problema(s|tica|tico)?|dificultad(es)?", r"retras(o|a|ar|ado)", r"perdida(s)?|deficit", r"conflict(o|os)?|disputa(s)?", r"rechaz(a|o|ar|ado)", r"negativ(o|a|os|as)", r"preocupa(cion|nte|do)?", r"alarma(nte)?|alerta", r"riesgo(s)?|amenaza(s)?"]
 CRISIS_KEYWORDS = re.compile(r"\b(crisis|emergencia|desastre|deslizamiento|inundaci[oó]n|afectaciones|damnificados|tragedia|zozobra|alerta)\b", re.IGNORECASE)
 RESPONSE_VERBS = re.compile(r"\b(atiend(e|en|iendo)|activ(a|o|ando)|decret(a|o|ando)|responde(r|iendo)|trabaj(a|ando)|lidera(ndo)?|enfrenta(ndo)?|gestiona(ndo)?|declar(o|a|ando)|anunci(a|o|ando))\b", re.IGNORECASE)
-
-# Patrones explícitos para acuerdos
-ACUERDO_PATTERNS = re.compile(
-    r"\b(acuerdo|alianza|convenio|joint\s+venture|memorando|mou|asociaci[oó]n|colaboraci[oó]n|partnership|fusi[oó]n|integraci[oó]n)\b"
-)
-NEG_ACUERDO_PATTERNS = re.compile(
-    r"(rompe|anula|rescinde|cancela|revoca|fracasa|frustra).{0,40}(acuerdo|alianza)|(acuerdo|alianza).{0,40}(se cae|fracasa|queda sin efecto|se rompe)",
-    re.IGNORECASE
-)
-
-EXPRESIONES_NEUTRAS = [
-    "informa","presenta informe","segun informe","segun estudio","de acuerdo con",
-    "participa","asiste","menciona","comenta","cita","segun medios","presenta balance",
-    "ranking","evento","foro","conferencia","panel"
-]
-
-VERBOS_DECLARATIVOS = [
-    "dijo","afirmo","aseguro","segun","indico","apunto","declaro","explico","estimo",
-    "segun el informe","segun la entidad","segun analistas","de acuerdo con"
-]
-
-MARCADORES_CONDICIONALES = [
-    "podria","estaria","habria","al parecer","posible","trascendio","se rumora","seria","serian"
-]
-
+ACUERDO_PATTERNS = re.compile(r"\b(acuerdo|alianza|convenio|joint\s+venture|memorando|mou|asociaci[oó]n|colaboraci[oó]n|partnership|fusi[oó]n|integraci[oó]n)\b")
+NEG_ACUERDO_PATTERNS = re.compile(r"(rompe|anula|rescinde|cancela|revoca|fracasa|frustra).{0,40}(acuerdo|alianza)|(acuerdo|alianza).{0,40}(se cae|fracasa|queda sin efecto|se rompe)", re.IGNORECASE)
+EXPRESIONES_NEUTRAS = ["informa","presenta informe","segun informe","segun estudio","de acuerdo con", "participa","asiste","menciona","comenta","cita","segun medios","presenta balance", "ranking","evento","foro","conferencia","panel"]
+VERBOS_DECLARATIVOS = ["dijo","afirmo","aseguro","segun","indico","apunto","declaro","explico","estimo", "segun el informe","segun la entidad","segun analistas","de acuerdo con"]
+MARCADORES_CONDICIONALES = ["podria","estaria","habria","al parecer","posible","trascendio","se rumora","seria","serian"]
 POS_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARIANTS]
 NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS]
 
@@ -180,40 +97,13 @@ def load_custom_css():
     st.markdown(
         """
         <style>
-        /* Variables CSS */
-        :root {
-            --primary-color: #1f77b4;
-            --secondary-color: #2ca02c;
-            --danger-color: #d62728;
-            --warning-color: #ff7f0e;
-            --card-bg: #ffffff;
-            --shadow-light: 0 2px 4px rgba(0,0,0,0.1);
-            --border-radius: 12px;
-        }
-        
-        /* Header principal */
-        .main-header {
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-            color: white; padding: 2rem; border-radius: var(--border-radius); text-align: center; font-size: 2.5rem;
-            font-weight: 800; margin-bottom: 1.5rem; box-shadow: var(--shadow-light);
-        }
-        
+        :root { --primary-color: #1f77b4; --secondary-color: #2ca02c; --card-bg: #ffffff; --shadow-light: 0 2px 4px rgba(0,0,0,0.1); --border-radius: 12px; }
+        .main-header { background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%); color: white; padding: 2rem; border-radius: var(--border-radius); text-align: center; font-size: 2.5rem; font-weight: 800; margin-bottom: 1.5rem; box-shadow: var(--shadow-light); }
         .subtitle { text-align: center; color: #666; font-size: 1.1rem; margin: -1rem 0 2rem 0; }
-        
-        /* Cards */
-        .metric-card {
-            background: var(--card-bg); padding: 1.2rem; border-radius: var(--border-radius); box-shadow: var(--shadow-light);
-            text-align: center; border: 1px solid #e0e0e0;
-        }
+        .metric-card { background: var(--card-bg); padding: 1.2rem; border-radius: var(--border-radius); box-shadow: var(--shadow-light); text-align: center; border: 1px solid #e0e0e0; }
         .metric-value { font-size: 2rem; font-weight: bold; color: var(--primary-color); }
         .metric-label { font-size: 0.9rem; color: #666; text-transform: uppercase; }
-        
-        .success-card {
-            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); padding: 1.5rem; border-radius: var(--border-radius);
-            border: 1px solid #28a745; margin: 1rem 0; box-shadow: var(--shadow-light);
-        }
-        
-        /* Botones */
+        .success-card { background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); padding: 1.5rem; border-radius: var(--border-radius); border: 1px solid #28a745; margin: 1rem 0; box-shadow: var(--shadow-light); }
         .stButton > button { border-radius: 8px; font-weight: 600; }
         </style>
         """,
@@ -351,12 +241,8 @@ def get_embedding(texto: str) -> Optional[List[float]]:
     if not texto: return None
     key = hashlib.md5(texto[:2000].encode("utf-8")).hexdigest()
     try:
-        # Usar st.session_state como cache en memoria para la sesión actual
-        if key in st.session_state: return st.session_state[key]
         resp = call_with_retries(openai.Embedding.create, input=[texto[:2000]], model=OPENAI_MODEL_EMBEDDING)
-        emb = resp["data"][0]["embedding"]
-        st.session_state[key] = emb
-        return emb
+        return resp["data"][0]["embedding"]
     except Exception: return None
 
 # ======================================
@@ -457,7 +343,7 @@ class ClasificadorTonoUltraV2:
 
     async def _clasificar_grupo_async(self, texto_representante: str, semaphore: asyncio.Semaphore):
         async with semaphore:
-            # Lógica simplificada de reglas para decidir si se necesita el LLM
+            # Lógica de reglas para decidir si se necesita el LLM
             t = unidecode(texto_representante.lower())
             brand_re = _build_brand_regex(self.marca, self.aliases)
             pos_hits = sum(1 for p in POS_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
@@ -560,24 +446,46 @@ class ClasificadorTemaDinamico:
         
         return [mapa_idx_a_subtema.get(i, "Sin tema") for i in range(n)]
 
+# <<< FUNCIÓN OPTIMIZADA PARA MEMORIA >>>
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
-    p_bar.progress(0.6, text=f"📊 Consolidando subtemas en {NUM_TEMAS_PRINCIPALES} temas...")
-    mapa_subtema_a_tema, subtemas_unicos = {}, list(set(s for s in subtemas if s != "Sin tema"))
-    if not subtemas_unicos or len(subtemas_unicos) <= NUM_TEMAS_PRINCIPALES:
-        p_bar.progress(1.0, "ℹ️ No se requiere consolidación."); return subtemas
+    p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
+    subtema_counts = Counter(subtemas)
+    
+    # Solo agrupar subtemas que aparecen más de una vez
+    subtemas_a_clusterizar = [st for st, count in subtema_counts.items() if st != "Sin tema" and count > 1]
+    singletons = [st for st, count in subtema_counts.items() if st != "Sin tema" and count == 1]
+    
+    mapa_subtema_a_tema = {st: st for st in singletons}
+    mapa_subtema_a_tema["Sin tema"] = "Sin tema"
 
-    emb_subtemas = {st: get_embedding(st) for st in subtemas_unicos}
+    if not subtemas_a_clusterizar or len(subtemas_a_clusterizar) < NUM_TEMAS_PRINCIPALES:
+        p_bar.progress(1.0, "ℹ️ No hay suficientes grupos de subtemas para consolidar. Usando subtemas como temas.")
+        for st in subtemas_a_clusterizar:
+            mapa_subtema_a_tema[st] = st
+        return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
+
+    p_bar.progress(0.7, f"🔄 Agrupando {len(subtemas_a_clusterizar)} subtemas frecuentes...")
+    emb_subtemas = {st: get_embedding(st) for st in subtemas_a_clusterizar}
     subtemas_validos = [st for st, emb in emb_subtemas.items() if emb is not None]
+    
     if len(subtemas_validos) < NUM_TEMAS_PRINCIPALES:
-        p_bar.progress(1.0, "ℹ️ No hay suficientes subtemas para consolidar."); return subtemas
+        p_bar.progress(1.0, "ℹ️ No hay suficientes subtemas con embeddings para consolidar.")
+        for st in subtemas_a_clusterizar:
+            mapa_subtema_a_tema[st] = st
+        return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
 
     emb_matrix = np.array([emb_subtemas[st] for st in subtemas_validos])
     clustering = AgglomerativeClustering(n_clusters=NUM_TEMAS_PRINCIPALES, metric="cosine", linkage="average").fit(emb_matrix)
     
+    del emb_subtemas
+    gc.collect() # Liberar memoria
+
     mapa_cluster_a_subtemas = defaultdict(list)
-    for i, label in enumerate(clustering.labels_): mapa_cluster_a_subtemas[label].append(subtemas_validos[i])
+    for i, label in enumerate(clustering.labels_):
+        mapa_cluster_a_subtemas[label].append(subtemas_validos[i])
 
     p_bar.progress(0.8, "🧠 Generando nombres para los temas principales...")
+    mapa_temas_finales = {}
     for cluster_id, lista_subtemas in mapa_cluster_a_subtemas.items():
         prompt = (
             "Eres un analista de medios experto en categorizar contenido noticioso. A partir de la siguiente lista de subtemas detallados, genera un nombre de TEMA principal (2-4 palabras) que los agrupe de forma lógica y descriptiva.\n"
@@ -591,9 +499,25 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
             tema_principal = limpiar_tema(resp.choices[0].message.content.strip().replace('"', ''))
         except Exception:
             tema_principal = max(lista_subtemas, key=len)
-        for subtema in lista_subtemas: mapa_subtema_a_tema[subtema] = tema_principal
+        
+        mapa_temas_finales[cluster_id] = tema_principal
+        for subtema in lista_subtemas:
+            mapa_subtema_a_tema[subtema] = tema_principal
+    
+    # Asignar singletons al tema más cercano
+    if singletons and mapa_temas_finales:
+        p_bar.progress(0.9, "✨ Asignando subtemas únicos a los temas principales...")
+        emb_temas_finales = {name: get_embedding(name) for name in set(mapa_temas_finales.values())}
+        valid_theme_names = [name for name, emb in emb_temas_finales.items() if emb]
+        emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
 
-    mapa_subtema_a_tema["Sin tema"] = "Sin tema"
+        for singleton in singletons:
+            emb_singleton = get_embedding(singleton)
+            if emb_singleton is not None and len(valid_theme_names) > 0:
+                sims = cosine_similarity([emb_singleton], emb_theme_matrix)
+                best_match_idx = np.argmax(sims)
+                mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
+
     p_bar.progress(1.0, "✅ Consolidación de temas completada.")
     return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
 
@@ -845,7 +769,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.6 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
