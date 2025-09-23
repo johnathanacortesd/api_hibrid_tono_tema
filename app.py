@@ -40,44 +40,19 @@ OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
 SIMILARITY_THRESHOLD_TEMAS = 0.85
-SIMILARITY_THRESHOLD_TITULOS = 0.80
+SIMILARITY_THRESHOLD_TITULOS = 0.95 # Elevado para ser más estricto con títulos casi idénticos
 MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 80
 NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
 
 # Lista de ciudades y gentilicios colombianos para filtrar
-CIUDADES_COLOMBIA = {
-    "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta",
-    "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería",
-    "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo",
-    "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu",
-    "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico",
-    "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar",
-    "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila",
-    "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío",
-    "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca",
-    "vaupés", "vaupes", "vichada"
-}
-
-GENTILICIOS_COLOMBIA = {
-    "bogotano", "bogotanos", "bogotana", "bogotanas", "capitalino", "capitalinos", "capitalina", "capitalinas",
-    "antioqueño", "antioqueños", "antioqueña", "antioqueñas", "paisa", "paisas", "medellense", "medellenses",
-    "caleño", "caleños", "caleña", "caleñas", "valluno", "vallunos", "valluna", "vallunas", "vallecaucano",
-    "vallecaucanos", "barranquillero", "barranquilleros", "cartagenero", "cartageneros", "costeño", "costeños",
-    "costeña", "costeñas", "cucuteño", "cucuteños", "bumangués", "santandereano", "santandereanos",
-    "boyacense", "boyacenses", "tolimense", "tolimenses", "huilense", "huilenses", "nariñense", "nariñenses",
-    "pastuso", "pastusas", "cordobés", "cordobeses", "cauca", "caucano", "caucanos", "chocoano", "chocoanos",
-    "casanareño", "casanareños", "caqueteño", "caqueteños", "guajiro", "guajiros", "llanero", "llaneros",
-    "amazonense", "amazonenses", "colombiano", "colombianos", "colombiana", "colombianas"
-}
+CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
+GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capitalino", "capitalinos", "capitalina", "capitalinas", "antioqueño", "antioqueños", "antioqueña", "antioqueñas", "paisa", "paisas", "medellense", "medellenses", "caleño", "caleños", "caleña", "caleñas", "valluno", "vallunos", "valluna", "vallunas", "vallecaucano", "vallecaucanos", "barranquillero", "barranquilleros", "cartagenero", "cartageneros", "costeño", "costeños", "costeña", "costeñas", "cucuteño", "cucuteños", "bumangués", "santandereano", "santandereanos", "boyacense", "boyacenses", "tolimense", "tolimenses", "huilense", "huilenses", "nariñense", "nariñenses", "pastuso", "pastusas", "cordobés", "cordobeses", "cauca", "caucano", "caucanos", "chocoano", "chocoanos", "casanareño", "casanareños", "caqueteño", "caqueteños", "guajiro", "guajiros", "llanero", "llaneros", "amazonense", "amazonenses", "colombiano", "colombianos", "colombiana", "colombianas"}
 
 # ======================================
 # Lexicos y patrones para analisis de tono
 # ======================================
-STOPWORDS_ES = set("""
- a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada
-""".split())
-
+STOPWORDS_ES = set(""" a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada """.split())
 POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
 NEG_VARIANTS = [r"demanda|denuncia|sanciona|multa|investiga|critica", r"cae|baja|pierde|crisis|quiebra|default", r"fraude|escandalo|irregularidad", r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga", r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora", r"problema(s|tica|tico)?|dificultad(es)?", r"retras(o|a|ar|ado)", r"perdida(s)?|deficit", r"conflict(o|os)?|disputa(s)?", r"rechaz(a|o|ar|ado)", r"negativ(o|a|os|as)", r"preocupa(cion|nte|do)?", r"alarma(nte)?|alerta", r"riesgo(s)?|amenaza(s)?"]
 CRISIS_KEYWORDS = re.compile(r"\b(crisis|emergencia|desastre|deslizamiento|inundaci[oó]n|afectaciones|damnificados|tragedia|zozobra|alerta)\b", re.IGNORECASE)
@@ -91,7 +66,7 @@ POS_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARIANTS
 NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS]
 
 # ======================================
-# Estilos CSS Mejorados
+# Estilos CSS
 # ======================================
 def load_custom_css():
     st.markdown(
@@ -114,9 +89,7 @@ def load_custom_css():
 # Autenticacion y Utilidades
 # ======================================
 def check_password() -> bool:
-    if st.session_state.get("password_correct", False):
-        return True
-    
+    if st.session_state.get("password_correct", False): return True
     st.markdown('<div class="main-header">🔐 Portal de Acceso Seguro</div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -126,9 +99,7 @@ def check_password() -> bool:
                 if password == st.secrets.get("APP_PASSWORD", "INVALID_DEFAULT"):
                     st.session_state["password_correct"] = True
                     st.success("✅ Acceso autorizado.")
-                    st.balloons()
-                    time.sleep(1.5)
-                    st.rerun()
+                    st.balloons(); time.sleep(1.5); st.rerun()
                 else:
                     st.error("❌ Contraseña incorrecta")
     return False
@@ -137,23 +108,19 @@ def call_with_retries(api_func, *args, **kwargs):
     max_retries = 3
     delay = 1
     for attempt in range(max_retries):
-        try:
-            return api_func(*args, **kwargs)
+        try: return api_func(*args, **kwargs)
         except Exception as e:
             if attempt == max_retries - 1: raise e
-            time.sleep(delay)
-            delay *= 2
+            time.sleep(delay); delay *= 2
 
 async def acall_with_retries(api_func, *args, **kwargs):
     max_retries = 3
     delay = 1
     for attempt in range(max_retries):
-        try:
-            return await api_func(*args, **kwargs)
+        try: return await api_func(*args, **kwargs)
         except Exception as e:
             if attempt == max_retries - 1: raise e
-            await asyncio.sleep(delay)
-            delay *= 2
+            await asyncio.sleep(delay); delay *= 2
 
 def norm_key(text: Any) -> str:
     if text is None: return ""
@@ -201,8 +168,7 @@ def extract_link(cell):
         return {"value": "Link", "url": cell.hyperlink.target}
     if isinstance(cell.value, str) and "=HYPERLINK" in cell.value:
         match = re.search(r'=HYPERLINK\("([^"]+)"', cell.value)
-        if match:
-            return {"value": "Link", "url": match.group(1)}
+        if match: return {"value": "Link", "url": match.group(1)}
     return {"value": cell.value, "url": None}
 
 def normalize_title_for_comparison(title: Any) -> str:
@@ -244,9 +210,6 @@ def simhash(texto: str) -> int:
 def hamdist(a: int, b: int) -> int:
     return bin(a ^ b).count('1')
 
-# ======================================
-# Embeddings con cache
-# ======================================
 @st.cache_data(ttl=3600)
 def get_embedding(texto: str) -> Optional[List[float]]:
     if not texto: return None
@@ -364,7 +327,6 @@ class ClasificadorTonoUltraV2:
             if pos_hits > neg_hits and pos_hits > 0: return {"tono": "Positivo", "justificacion": "Acción favorable"}
             if neg_hits > pos_hits and neg_hits > 0: return {"tono": "Negativo", "justificacion": "Hecho adverso"}
             
-            # Si las reglas no son claras, usar LLM
             return await self._llm_refuerzo(texto_representante)
 
     async def procesar_lote_async(self, textos_concat: pd.Series, progress_bar, resumen_puro: pd.Series, titulos_puros: pd.Series):
@@ -485,8 +447,7 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     emb_matrix = np.array([emb_subtemas[st] for st in subtemas_validos])
     clustering = AgglomerativeClustering(n_clusters=NUM_TEMAS_PRINCIPALES, metric="cosine", linkage="average").fit(emb_matrix)
     
-    del emb_subtemas
-    gc.collect()
+    del emb_subtemas; gc.collect()
 
     mapa_cluster_a_subtemas = defaultdict(list)
     for i, label in enumerate(clustering.labels_):
@@ -543,29 +504,40 @@ def analizar_temas_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[
 # ======================================
 def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> List[Dict]:
     processed_rows = deepcopy(rows)
-    seen_online = {}
+    # Diccionarios para guardar el índice de la primera aparición de una noticia
+    seen_online_url = {}
     seen_broadcast = {}
+    # Buckets para agrupar noticias online por medio y mención para la comparación de títulos
+    online_title_buckets = defaultdict(list)
 
     for i, row in enumerate(processed_rows):
         if row.get("is_duplicate"): continue
 
         tipo_medio = normalizar_tipo_medio(str(row.get(key_map.get("tipodemedio"))))
         mencion_norm = norm_key(row.get(key_map.get("menciones")))
+        medio_norm = norm_key(row.get(key_map.get("medio")))
 
         if tipo_medio == "Internet":
             link_info = row.get(key_map.get("link_nota"), {})
             url = link_info.get("url") if isinstance(link_info, dict) else None
+            
+            # Regla 1: Duplicado por URL + Mención
             if url and mencion_norm:
                 key = (url, mencion_norm)
-                if key in seen_online:
-                    winner_index = seen_online[key]
+                if key in seen_online_url:
+                    winner_index = seen_online_url[key]
                     row["is_duplicate"] = True
                     row["idduplicada"] = processed_rows[winner_index].get(key_map.get("idnoticia"), "")
+                    continue # Ya es duplicado, no necesita más revisión
                 else:
-                    seen_online[key] = i
+                    seen_online_url[key] = i
+            
+            # Regla 2: Agrupar para comparación de títulos
+            if medio_norm and mencion_norm:
+                bucket_key = (medio_norm, mencion_norm)
+                online_title_buckets[bucket_key].append(i)
         
         elif tipo_medio in ["Radio", "Televisión"]:
-            medio_norm = norm_key(row.get(key_map.get("medio")))
             hora = str(row.get(key_map.get("hora"), "")).strip()
             if mencion_norm and medio_norm and hora:
                 key = (mencion_norm, medio_norm, hora)
@@ -575,6 +547,32 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
                     row["idduplicada"] = processed_rows[winner_index].get(key_map.get("idnoticia"), "")
                 else:
                     seen_broadcast[key] = i
+    
+    # Procesar buckets de títulos para noticias de Internet
+    for bucket_key, indices in online_title_buckets.items():
+        if len(indices) < 2: continue
+        
+        for i in range(len(indices)):
+            for j in range(i + 1, len(indices)):
+                idx1 = indices[i]
+                idx2 = indices[j]
+
+                # Si alguno ya fue marcado como duplicado (por URL), no lo comparamos
+                if processed_rows[idx1].get("is_duplicate") or processed_rows[idx2].get("is_duplicate"):
+                    continue
+
+                titulo1 = normalize_title_for_comparison(processed_rows[idx1].get(key_map.get("titulo")))
+                titulo2 = normalize_title_for_comparison(processed_rows[idx2].get(key_map.get("titulo")))
+
+                if titulo1 and titulo2 and SequenceMatcher(None, titulo1, titulo2).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
+                    # Marcar como duplicado al que tenga el título más corto
+                    if len(titulo1) < len(titulo2):
+                        processed_rows[idx1]["is_duplicate"] = True
+                        processed_rows[idx1]["idduplicada"] = processed_rows[idx2].get(key_map.get("idnoticia"), "")
+                    else:
+                        processed_rows[idx2]["is_duplicate"] = True
+                        processed_rows[idx2]["idduplicada"] = processed_rows[idx1].get(key_map.get("idnoticia"), "")
+    
     return processed_rows
 
 def run_dossier_logic(sheet):
@@ -715,20 +713,18 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
 
         with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
             p_bar = st.progress(0)
+            st.write(f"🤖 Usando IA para generar Subtemas para {len(rows_to_analyze)} noticias...")
             clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
-            
+            subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
+            df_temp[key_map["subtema"]] = subtemas
+
             if tema_pkl_file:
-                st.write(f"🤖 Usando `pipeline_tema.pkl` para Temas y la IA para Subtemas...")
+                st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
                 if temas_principales is None: st.stop()
                 df_temp[key_map["tema"]] = temas_principales
-                
-                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-                df_temp[key_map["subtema"]] = subtemas
             else:
-                st.write(f"🤖 Usando IA para generar Tema y Subtema para {len(rows_to_analyze)} noticias...")
-                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-                df_temp[key_map["subtema"]] = subtemas
+                st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
                 temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
                 df_temp[key_map["tema"]] = temas_principales
             
@@ -770,7 +766,7 @@ def main():
             brand_aliases_text = st.text_area("**Alias y voceros** (separados por ;)", placeholder="Ej: Ban;Juan Carlos Mora", height=80)
 
             with st.expander("⚙️ Opcional: Usar Modelos Personalizados (.pkl)"):
-                st.info("Si subes un archivo aquí, se usará en lugar del análisis con IA.")
+                st.info("Si subes un archivo aquí, se usará en lugar del análisis con IA (excepto para Subtema, que siempre usa IA).")
                 tono_pkl_file = st.file_uploader("Sube `pipeline_sentimiento.pkl` para Tono", type=["pkl"])
                 tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
 
