@@ -321,12 +321,27 @@ def normalize_title_for_comparison(title: Any) -> str:
     cleaned = tmp[0] if tmp else title
     return re.sub(r"\W+", " ", cleaned).lower().strip()
 
-# <<< FUNCIÓN REINSERTADA Y CORREGIDA
 def normalizar_tipo_medio(tipo_raw: str) -> str:
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
     mapping = { "fm": "Radio", "am": "Radio", "radio": "Radio", "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión", "diario": "Prensa", "prensa": "Prensa", "revista": "Prensa", "revistas": "Prensa", "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"}
     return mapping.get(t, "Otro")
+
+def simhash(texto: str) -> int:
+    if not texto: return 0
+    toks = string_norm_label(texto).split()
+    if not toks: return 0
+    bits = [0] * 64
+    for tok in toks:
+        hv = int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16) & ((1 << 64) - 1)
+        for i in range(64): bits[i] += 1 if (hv >> i) & 1 else -1
+    v = 0
+    for i in range(64):
+        if bits[i] >= 0: v |= (1 << i)
+    return v
+
+def hamdist(a: int, b: int) -> int:
+    return bin(a ^ b).count('1')
 
 # ======================================
 # Embeddings con cache
@@ -371,6 +386,24 @@ def agrupar_por_titulo_similar(titulos: List[str]) -> Dict[int, List[int]]:
                 grupo_actual.append(j)
                 used.add(j)
         if len(grupo_actual) >= 2: grupos[gid], gid = grupo_actual, gid + 1
+    return grupos
+
+def agrupar_por_resumen_puro(resumenes: List[str]) -> Dict[int, List[int]]:
+    gid, grupos, used = 0, {}, set()
+    norm = [string_norm_label(r or "") for r in resumenes]
+    hashes = [simhash(r or "") for r in norm]
+    for i in range(len(norm)):
+        if i in used or not norm[i]: continue
+        grupo = [i]
+        used.add(i)
+        for j in range(i + 1, len(norm)):
+            if j in used or not norm[j]: continue
+            if hamdist(hashes[i], hashes[j]) <= 8 and SequenceMatcher(None, norm[i], norm[j]).ratio() >= 0.92:
+                grupo.append(j)
+                used.add(j)
+        if len(grupo) >= 2:
+            grupos[gid] = grupo
+            gid += 1
     return grupos
 
 def seleccionar_representante(indices: List[int], textos: List[str]) -> Tuple[int, str]:
@@ -812,7 +845,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.5 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.6 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
