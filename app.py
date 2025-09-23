@@ -516,7 +516,6 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
             link_info = row.get(key_map.get("link_nota"), {})
             url = link_info.get("url") if isinstance(link_info, dict) else None
             
-            # Regla 1: Duplicado por URL + Mención (más estricta)
             if url and mencion_norm:
                 key = (url, mencion_norm)
                 if key in seen_online_url:
@@ -527,7 +526,6 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
                 else:
                     seen_online_url[key] = i
             
-            # Regla 2: Agrupar para comparación de títulos si la regla 1 no aplica
             if medio_norm and mencion_norm:
                 bucket_key = (medio_norm, mencion_norm)
                 online_title_buckets[bucket_key].append(i)
@@ -543,22 +541,18 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
                 else:
                     seen_broadcast[key] = i
     
-    # Procesar buckets de títulos para noticias de Internet
     for bucket_key, indices in online_title_buckets.items():
         if len(indices) < 2: continue
         
         for i in range(len(indices)):
             for j in range(i + 1, len(indices)):
                 idx1, idx2 = indices[i], indices[j]
-                # Si alguno ya fue marcado como duplicado (por URL), no lo comparamos en esta fase
                 if processed_rows[idx1].get("is_duplicate") or processed_rows[idx2].get("is_duplicate"): continue
 
                 titulo1 = normalize_title_for_comparison(processed_rows[idx1].get(key_map.get("titulo")))
                 titulo2 = normalize_title_for_comparison(processed_rows[idx2].get(key_map.get("titulo")))
 
-                # Aplicar umbral de similitud de títulos
                 if titulo1 and titulo2 and SequenceMatcher(None, titulo1, titulo2).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
-                    # Marcar como duplicado al que tenga el título más corto
                     if len(titulo1) < len(titulo2):
                         processed_rows[idx1]["is_duplicate"] = True
                         processed_rows[idx1]["idduplicada"] = processed_rows[idx2].get(key_map.get("idnoticia"), "")
@@ -668,19 +662,19 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
 
     with st.status("🗺️ **Paso 2/5:** Mapeos y Normalización", expanded=True) as s:
         df_region = pd.read_excel(region_file)
-        region_map = {str(k).lower().strip(): v for k, v in pd.Series(df_region.iloc[:, 1].values, index=df_region.iloc[:, 0]).to_dict().items()}
+        region_map = {norm_key(k): v for k, v in pd.Series(df_region.iloc[:, 1].values, index=df_region.iloc[:, 0]).to_dict().items()}
         df_internet = pd.read_excel(internet_file)
-        internet_map = {str(k).lower().strip(): v for k, v in pd.Series(df_internet.iloc[:, 1].values, index=df_internet.iloc[:, 0]).to_dict().items()}
+        internet_map = {norm_key(k): v for k, v in pd.Series(df_internet.iloc[:, 1].values, index=df_internet.iloc[:, 0]).to_dict().items()}
         
         for row in all_processed_rows:
-            medio_key = str(row.get(key_map.get("medio"), "")).lower().strip()
-            # Aplicar mapeo de internet si existe
-            if medio_key in internet_map:
-                row[key_map.get("medio")] = internet_map[medio_key]
-                row[key_map.get("tipodemedio")] = "Internet" # Asegurar el tipo de medio correcto
-            # Aplicar mapeo de región
-            row[key_map.get("region")] = region_map.get(norm_key(row.get(key_map.get("medio"))), "N/A")
-            # Arreglar enlaces según el tipo de medio (ya normalizado)
+            medio_norm_key = norm_key(row.get(key_map.get("medio")))
+            
+            if medio_norm_key in internet_map:
+                row[key_map.get("medio")] = internet_map[medio_norm_key]
+                row[key_map.get("tipodemedio")] = "Internet"
+            
+            row[key_map.get("region")] = region_map.get(medio_norm_key, "N/A")
+            
             fix_links_by_media_type(row, key_map)
 
         s.update(label="✅ **Paso 2/5:** Mapeos aplicados", state="complete")
@@ -795,7 +789,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.2 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.3 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
