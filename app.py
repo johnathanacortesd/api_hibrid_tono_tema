@@ -566,7 +566,7 @@ def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
     norm_keys = [norm_key(h) for h in headers]
     key_map = {nk: nk for nk in norm_keys}
-    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoai": norm_key("Tono AI"), "justificaciontono": norm_key("Justificacion Tono"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)") })
+    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoai": norm_key("Tono AI"), "justificaciontono": norm_key("Justificacion Tono"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)"), "region": norm_key("Region") })
     
     rows, split_rows = [], []
     for row in sheet.iter_rows(min_row=2):
@@ -662,19 +662,23 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
 
     with st.status("🗺️ **Paso 2/5:** Mapeos y Normalización", expanded=True) as s:
         df_region = pd.read_excel(region_file)
-        region_map = {norm_key(k): v for k, v in pd.Series(df_region.iloc[:, 1].values, index=df_region.iloc[:, 0]).to_dict().items()}
+        region_map = {str(k).lower().strip(): v for k, v in pd.Series(df_region.iloc[:, 1].values, index=df_region.iloc[:, 0]).to_dict().items()}
         df_internet = pd.read_excel(internet_file)
-        internet_map = {norm_key(k): v for k, v in pd.Series(df_internet.iloc[:, 1].values, index=df_internet.iloc[:, 0]).to_dict().items()}
+        internet_map = {str(k).lower().strip(): v for k, v in pd.Series(df_internet.iloc[:, 1].values, index=df_internet.iloc[:, 0]).to_dict().items()}
         
         for row in all_processed_rows:
-            medio_norm_key = norm_key(row.get(key_map.get("medio")))
+            # Primero, obtener la clave del medio original para la búsqueda
+            original_medio_key = str(row.get(key_map.get("medio"), "")).lower().strip()
             
-            if medio_norm_key in internet_map:
-                row[key_map.get("medio")] = internet_map[medio_norm_key]
+            # 1. Mapear la región usando la clave del medio original
+            row[key_map.get("region")] = region_map.get(original_medio_key, "N/A")
+            
+            # 2. Mapear y normalizar el medio de Internet si existe
+            if original_medio_key in internet_map:
+                row[key_map.get("medio")] = internet_map[original_medio_key]
                 row[key_map.get("tipodemedio")] = "Internet"
             
-            row[key_map.get("region")] = region_map.get(medio_norm_key, "N/A")
-            
+            # 3. Arreglar los enlaces basándose en el Tipo de Medio final
             fix_links_by_media_type(row, key_map)
 
         s.update(label="✅ **Paso 2/5:** Mapeos aplicados", state="complete")
@@ -789,7 +793,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.3 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.5 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
