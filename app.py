@@ -211,6 +211,17 @@ def normalize_title_for_comparison(title: Any) -> str:
     cleaned = tmp[0] if tmp else title
     return re.sub(r"\W+", " ", cleaned).lower().strip()
 
+def clean_title_for_output(title: Any) -> str:
+    return re.sub(r"\s*\|\s*[\w\s]+$", "", str(title)).strip()
+
+def corregir_texto(text: Any) -> Any:
+    if not isinstance(text, str): return text
+    text = re.sub(r"(<br>|\[\.\.\.\]|\s+)", " ", text).strip()
+    match = re.search(r"[A-ZÁÉÍÓÚÑ]", text)
+    if match: text = text[match.start():]
+    if text and not text.endswith("..."): text = text.rstrip(".") + "..."
+    return text
+
 def normalizar_tipo_medio(tipo_raw: str) -> str:
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
@@ -446,12 +457,10 @@ class ClasificadorTemaDinamico:
         
         return [mapa_idx_a_subtema.get(i, "Sin tema") for i in range(n)]
 
-# <<< FUNCIÓN OPTIMIZADA PARA MEMORIA >>>
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
     subtema_counts = Counter(subtemas)
     
-    # Solo agrupar subtemas que aparecen más de una vez
     subtemas_a_clusterizar = [st for st, count in subtema_counts.items() if st != "Sin tema" and count > 1]
     singletons = [st for st, count in subtema_counts.items() if st != "Sin tema" and count == 1]
     
@@ -478,7 +487,7 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     clustering = AgglomerativeClustering(n_clusters=NUM_TEMAS_PRINCIPALES, metric="cosine", linkage="average").fit(emb_matrix)
     
     del emb_subtemas
-    gc.collect() # Liberar memoria
+    gc.collect()
 
     mapa_cluster_a_subtemas = defaultdict(list)
     for i, label in enumerate(clustering.labels_):
@@ -504,7 +513,6 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
         for subtema in lista_subtemas:
             mapa_subtema_a_tema[subtema] = tema_principal
     
-    # Asignar singletons al tema más cercano
     if singletons and mapa_temas_finales:
         p_bar.progress(0.9, "✨ Asignando subtemas únicos a los temas principales...")
         emb_temas_finales = {name: get_embedding(name) for name in set(mapa_temas_finales.values())}
@@ -532,7 +540,7 @@ def analizar_temas_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[
         return None
 
 # ======================================
-# Lógica de Duplicados (NUEVA Y MEJORADA)
+# Lógica de Duplicados y Generación de Excel
 # ======================================
 def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> List[Dict]:
     processed_rows = deepcopy(rows)
@@ -574,7 +582,7 @@ def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
     norm_keys = [norm_key(h) for h in headers]
     key_map = {nk: nk for nk in norm_keys}
-    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoai": norm_key("Tono AI"), "justificaciontono": norm_key("Justificacion Tono"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota") })
+    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoai": norm_key("Tono AI"), "justificaciontono": norm_key("Justificacion Tono"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)") })
     
     rows, split_rows = [], []
     for row in sheet.iter_rows(min_row=2):
@@ -582,7 +590,7 @@ def run_dossier_logic(sheet):
         rows.append({norm_keys[i]: c for i, c in enumerate(row) if i < len(norm_keys)})
     
     for r_cells in rows:
-        base = {k: extract_link(v) if k == key_map["link_nota"] else v.value for k, v in r_cells.items()}
+        base = {k: extract_link(v) if k in [key_map["link_nota"], key_map["link_streaming"]] else v.value for k, v in r_cells.items()}
         m_list = [m.strip() for m in str(base.get(key_map["menciones"], "")).split(";") if m.strip()]
         for m in m_list or [None]:
             new = deepcopy(base)
@@ -600,33 +608,49 @@ def run_dossier_logic(sheet):
     
     return processed_rows, key_map
 
-# ======================================
-# Generación de Excel
-# ======================================
+def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
+    tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
+    if not (tkey and ln_key and ls_key): return
+    tipo = normalizar_tipo_medio(str(row.get(tkey, "")))
+    ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
+    has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
+    if tipo in ["Radio", "Televisión"]: row[ls_key] = {"value": "", "url": None}
+    elif tipo == "Internet": row[ln_key], row[ls_key] = ls, ln
+    elif tipo == "Prensa":
+        if not has_url(ln) and has_url(ls): row[ln_key] = ls
+        row[ls_key] = {"value": "", "url": None}
+
 def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
     out_sheet = out_wb.active
     out_sheet.title = "Resultado"
-    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Region","Titulo","Tono AI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Menciones - Empresa","Justificacion Tono","ID duplicada"]
+    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono AI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","Justificacion Tono","ID duplicada"]
+    numeric_columns = {"ID Noticia", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres", "CPE", "Tier", "Audiencia"}
     out_sheet.append(final_order)
     link_style = NamedStyle(name="Hyperlink_Custom", font=Font(color="0000FF", underline="single"))
     if "Hyperlink_Custom" not in out_wb.style_names: out_wb.add_named_style(link_style)
     
     for row_data in all_processed_rows:
+        row_data[key_map.get("titulo")] = clean_title_for_output(row_data.get(key_map.get("titulo")))
+        row_data[key_map.get("resumen")] = corregir_texto(row_data.get(key_map.get("resumen")))
         row_to_append, links_to_add = [], {}
         for col_idx, header in enumerate(final_order, 1):
             nk_header = norm_key(header)
             val = row_data.get(nk_header)
-            
-            if isinstance(val, dict) and "url" in val:
-                row_to_append.append(val.get("value", "Link"))
+            cell_value = None
+            if header in numeric_columns:
+                try: cell_value = float(val) if val is not None and str(val).strip() != "" else None
+                except (ValueError, TypeError): cell_value = str(val)
+            elif isinstance(val, dict) and "url" in val:
+                cell_value = val.get("value", "Link")
                 if val.get("url"): links_to_add[col_idx] = val["url"]
-            else:
-                row_to_append.append(str(val) if val is not None else "")
+            elif val is not None: cell_value = str(val)
+            row_to_append.append(cell_value)
         out_sheet.append(row_to_append)
         for col_idx, url in links_to_add.items():
             cell = out_sheet.cell(row=out_sheet.max_row, column=col_idx)
-            cell.hyperlink, cell.style = url, "Hyperlink_Custom"
+            cell.hyperlink = url
+            cell.style = "Hyperlink_Custom"
             
     output = io.BytesIO()
     out_wb.save(output)
@@ -659,7 +683,10 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             if medio_key in internet_map:
                 row[key_map.get("medio")] = internet_map[medio_key]
                 row[key_map.get("tipodemedio")] = "Internet"
+            fix_links_by_media_type(row, key_map) # Llamada a la función restaurada
         s.update(label="✅ **Paso 2/5:** Mapeos aplicados", state="complete")
+        
+    gc.collect() # Limpiar memoria
 
     rows_to_analyze = [row for row in all_processed_rows if not row.get("is_duplicate")]
     if rows_to_analyze:
@@ -711,6 +738,8 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         results_map = df_temp.set_index("original_index").to_dict("index")
         for row in all_processed_rows:
             if not row.get("is_duplicate"): row.update(results_map.get(row["original_index"], {}))
+    
+    gc.collect() # Limpiar memoria antes del paso final
 
     with st.status("📊 **Paso 5/5:** Generando informe final", expanded=True) as s:
         st.write("📝 Compilando resultados y generando Excel...")
@@ -769,7 +798,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.8 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
