@@ -98,15 +98,13 @@ def check_password() -> bool:
             if st.form_submit_button("🚀 Ingresar", use_container_width=True, type="primary"):
                 if password == st.secrets.get("APP_PASSWORD", "INVALID_DEFAULT"):
                     st.session_state["password_correct"] = True
-                    st.success("✅ Acceso autorizado.")
-                    st.balloons(); time.sleep(1.5); st.rerun()
+                    st.success("✅ Acceso autorizado."); st.balloons(); time.sleep(1.5); st.rerun()
                 else:
                     st.error("❌ Contraseña incorrecta")
     return False
 
 def call_with_retries(api_func, *args, **kwargs):
-    max_retries = 3
-    delay = 1
+    max_retries = 3; delay = 1
     for attempt in range(max_retries):
         try: return api_func(*args, **kwargs)
         except Exception as e:
@@ -114,8 +112,7 @@ def call_with_retries(api_func, *args, **kwargs):
             time.sleep(delay); delay *= 2
 
 async def acall_with_retries(api_func, *args, **kwargs):
-    max_retries = 3
-    delay = 1
+    max_retries = 3; delay = 1
     for attempt in range(max_retries):
         try: return await api_func(*args, **kwargs)
         except Exception as e:
@@ -504,10 +501,8 @@ def analizar_temas_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[
 # ======================================
 def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> List[Dict]:
     processed_rows = deepcopy(rows)
-    # Diccionarios para guardar el índice de la primera aparición de una noticia
     seen_online_url = {}
     seen_broadcast = {}
-    # Buckets para agrupar noticias online por medio y mención para la comparación de títulos
     online_title_buckets = defaultdict(list)
 
     for i, row in enumerate(processed_rows):
@@ -521,18 +516,16 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
             link_info = row.get(key_map.get("link_nota"), {})
             url = link_info.get("url") if isinstance(link_info, dict) else None
             
-            # Regla 1: Duplicado por URL + Mención
             if url and mencion_norm:
                 key = (url, mencion_norm)
                 if key in seen_online_url:
                     winner_index = seen_online_url[key]
                     row["is_duplicate"] = True
                     row["idduplicada"] = processed_rows[winner_index].get(key_map.get("idnoticia"), "")
-                    continue # Ya es duplicado, no necesita más revisión
+                    continue 
                 else:
                     seen_online_url[key] = i
             
-            # Regla 2: Agrupar para comparación de títulos
             if medio_norm and mencion_norm:
                 bucket_key = (medio_norm, mencion_norm)
                 online_title_buckets[bucket_key].append(i)
@@ -548,24 +541,18 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
                 else:
                     seen_broadcast[key] = i
     
-    # Procesar buckets de títulos para noticias de Internet
     for bucket_key, indices in online_title_buckets.items():
         if len(indices) < 2: continue
         
         for i in range(len(indices)):
             for j in range(i + 1, len(indices)):
-                idx1 = indices[i]
-                idx2 = indices[j]
-
-                # Si alguno ya fue marcado como duplicado (por URL), no lo comparamos
-                if processed_rows[idx1].get("is_duplicate") or processed_rows[idx2].get("is_duplicate"):
-                    continue
+                idx1, idx2 = indices[i], indices[j]
+                if processed_rows[idx1].get("is_duplicate") or processed_rows[idx2].get("is_duplicate"): continue
 
                 titulo1 = normalize_title_for_comparison(processed_rows[idx1].get(key_map.get("titulo")))
                 titulo2 = normalize_title_for_comparison(processed_rows[idx2].get(key_map.get("titulo")))
 
                 if titulo1 and titulo2 and SequenceMatcher(None, titulo1, titulo2).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
-                    # Marcar como duplicado al que tenga el título más corto
                     if len(titulo1) < len(titulo2):
                         processed_rows[idx1]["is_duplicate"] = True
                         processed_rows[idx1]["idduplicada"] = processed_rows[idx2].get(key_map.get("idnoticia"), "")
@@ -694,8 +681,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             p_bar = st.progress(0)
             if tono_pkl_file:
                 st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para {len(rows_to_analyze)} noticias...")
-                p_bar.progress(0.5)
-                resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
+                p_bar.progress(0.5); resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
                 if resultados_tono is None: st.stop()
                 p_bar.progress(1.0)
             else:
@@ -713,7 +699,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
 
         with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
             p_bar = st.progress(0)
-            st.write(f"🤖 Usando IA para generar Subtemas para {len(rows_to_analyze)} noticias...")
+            st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
             clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
             subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             df_temp[key_map["subtema"]] = subtemas
@@ -794,7 +780,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.9 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
