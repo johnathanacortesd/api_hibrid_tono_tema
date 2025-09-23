@@ -503,10 +503,10 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
     processed_rows = deepcopy(rows)
     seen_online_url = {}
     seen_broadcast = {}
-    online_title_buckets = defaultdict(list) # Para la regla secundaria de Internet
+    online_title_buckets = defaultdict(list)
 
     for i, row in enumerate(processed_rows):
-        if row.get("is_duplicate"): continue # Si ya es duplicado, ignorar
+        if row.get("is_duplicate"): continue
 
         tipo_medio = normalizar_tipo_medio(str(row.get(key_map.get("tipodemedio"))))
         mencion_norm = norm_key(row.get(key_map.get("menciones")))
@@ -516,18 +516,18 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
             link_info = row.get(key_map.get("link_nota"), {})
             url = link_info.get("url") if isinstance(link_info, dict) else None
             
-            # Regla 1 (Internet): Misma URL y Misma Mención
+            # Regla 1: Duplicado por URL + Mención (más estricta)
             if url and mencion_norm:
                 key = (url, mencion_norm)
                 if key in seen_online_url:
                     winner_index = seen_online_url[key]
                     row["is_duplicate"] = True
                     row["idduplicada"] = processed_rows[winner_index].get(key_map.get("idnoticia"), "")
-                    continue # Noticia marcada, pasar a la siguiente
+                    continue 
                 else:
                     seen_online_url[key] = i
             
-            # Para la Regla 2 (Internet - Título similar), agrupamos por medio y mención
+            # Regla 2: Agrupar para comparación de títulos si la regla 1 no aplica
             if medio_norm and mencion_norm:
                 bucket_key = (medio_norm, mencion_norm)
                 online_title_buckets[bucket_key].append(i)
@@ -543,23 +543,22 @@ def detectar_duplicados_avanzado(rows: List[Dict], key_map: Dict[str, str]) -> L
                 else:
                     seen_broadcast[key] = i
     
-    # Procesar la Regla 2 (Internet): Mismo Medio, Misma Mención, Título Similar
+    # Procesar buckets de títulos para noticias de Internet
     for bucket_key, indices in online_title_buckets.items():
-        if len(indices) < 2: continue # Necesitamos al menos dos noticias en el bucket
-
+        if len(indices) < 2: continue
+        
         for i in range(len(indices)):
             for j in range(i + 1, len(indices)):
                 idx1, idx2 = indices[i], indices[j]
-                
-                # Si alguna de las dos ya fue marcada como duplicada por la Regla 1, omitir
-                if processed_rows[idx1].get("is_duplicate") or processed_rows[idx2].get("is_duplicate"):
-                    continue
+                # Si alguno ya fue marcado como duplicado (por URL), no lo comparamos en esta fase
+                if processed_rows[idx1].get("is_duplicate") or processed_rows[idx2].get("is_duplicate"): continue
 
                 titulo1 = normalize_title_for_comparison(processed_rows[idx1].get(key_map.get("titulo")))
                 titulo2 = normalize_title_for_comparison(processed_rows[idx2].get(key_map.get("titulo")))
 
+                # Aplicar umbral de similitud de títulos
                 if titulo1 and titulo2 and SequenceMatcher(None, titulo1, titulo2).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
-                    # Se considera duplicada la que tenga el título más corto
+                    # Marcar como duplicado al que tenga el título más corto
                     if len(titulo1) < len(titulo2):
                         processed_rows[idx1]["is_duplicate"] = True
                         processed_rows[idx1]["idduplicada"] = processed_rows[idx2].get(key_map.get("idnoticia"), "")
@@ -581,7 +580,12 @@ def run_dossier_logic(sheet):
         rows.append({norm_keys[i]: c for i, c in enumerate(row) if i < len(norm_keys)})
     
     for r_cells in rows:
+        # Extraer enlaces y valores
         base = {k: extract_link(v) if k in [key_map["link_nota"], key_map["link_streaming"]] else v.value for k, v in r_cells.items()}
+        # Normalizar Tipo de Medio aquí
+        if key_map.get("tipodemedio") in base:
+            base[key_map["tipodemedio"]] = normalizar_tipo_medio(base.get(key_map["tipodemedio"]))
+
         m_list = [m.strip() for m in str(base.get(key_map["menciones"], "")).split(";") if m.strip()]
         for m in m_list or [None]:
             new = deepcopy(base)
@@ -602,45 +606,28 @@ def run_dossier_logic(sheet):
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
-    tipo = normalizar_tipo_medio(str(row.get(tkey, "")))
+    tipo = normalizar_tipo_medio(str(row.get(tkey, ""))) # Ya normalizado antes, pero se mantiene la llamada por seguridad
     ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
-    if tipo in ["Radio", "Televisión"]: # Los enlaces de streaming son relevantes, los de nota no
-        row[ln_key] = {"value": "", "url": None} # Eliminar Link Nota si no es relevante
-    elif tipo == "Internet": # Los enlaces de nota son relevantes, streaming es secundario o duplicado
-        if has_url(ls) and not has_url(ln): # Si hay streaming pero no link nota, usar streaming como link nota
-             row[ln_key] = ls
-        row[ls_key] = {"value": "", "url": None} # Eliminar Link Streaming, se prioriza Link Nota
-    elif tipo == "Prensa": # Solo Link Nota es relevante
-        if has_url(ls) and not has_url(ln): # Si hay streaming pero no link nota, usar streaming como link nota
-            row[ln_key] = ls
-        row[ls_key] = {"value": "", "url": None} # Eliminar Link Streaming
-    # Si el tipo es 'Otro', no se aplica ninguna regla específica de enlaces, se mantienen como están.
-
+    if tipo in ["Radio", "Televisión"]: row[ls_key] = {"value": "", "url": None}
+    elif tipo == "Internet": row[ln_key], row[ls_key] = ls, ln
+    elif tipo == "Prensa":
+        if not has_url(ln) and has_url(ls): row[ln_key] = ls
+        row[ls_key] = {"value": "", "url": None}
 
 def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
     out_sheet = out_wb.active
     out_sheet.title = "Resultado"
-    # Orden de columnas final (con todas las columnas originales y las nuevas)
-    final_order = [
-        "ID Noticia", "Fecha", "Hora", "Medio", "Tipo de Medio", "Seccion - Programa", "Region",
-        "Titulo", "Autor - Conductor", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres",
-        "CPE", "Tier", "Audiencia", "Tono", "Tono AI", "Tema", "Subtema", "Resumen - Aclaracion",
-        "Link Nota", "Link (Streaming - Imagen)", "Menciones - Empresa", "Justificacion Tono", "ID duplicada"
-    ]
+    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono AI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","Justificacion Tono","ID duplicada"]
     numeric_columns = {"ID Noticia", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres", "CPE", "Tier", "Audiencia"}
     out_sheet.append(final_order)
     link_style = NamedStyle(name="Hyperlink_Custom", font=Font(color="0000FF", underline="single"))
     if "Hyperlink_Custom" not in out_wb.style_names: out_wb.add_named_style(link_style)
     
     for row_data in all_processed_rows:
-        # Aplicar limpieza de texto original antes de exportar
-        if key_map.get("titulo") in row_data:
-            row_data[key_map.get("titulo")] = clean_title_for_output(row_data.get(key_map.get("titulo")))
-        if key_map.get("resumen") in row_data:
-            row_data[key_map.get("resumen")] = corregir_texto(row_data.get(key_map.get("resumen")))
-
+        row_data[key_map.get("titulo")] = clean_title_for_output(row_data.get(key_map.get("titulo")))
+        row_data[key_map.get("resumen")] = corregir_texto(row_data.get(key_map.get("resumen")))
         row_to_append, links_to_add = [], {}
         for col_idx, header in enumerate(final_order, 1):
             nk_header = norm_key(header)
@@ -681,37 +668,22 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         s.update(label="✅ **Paso 1/5:** Limpieza y duplicados completados", state="complete")
 
     with st.status("🗺️ **Paso 2/5:** Mapeos y Normalización", expanded=True) as s:
-        st.write("📍 Procesando tipos de medio, regiones y medios digitales...")
         df_region = pd.read_excel(region_file)
         region_map = {str(k).lower().strip(): v for k, v in pd.Series(df_region.iloc[:, 1].values, index=df_region.iloc[:, 0]).to_dict().items()}
         df_internet = pd.read_excel(internet_file)
         internet_map = {str(k).lower().strip(): v for k, v in pd.Series(df_internet.iloc[:, 1].values, index=df_internet.iloc[:, 0]).to_dict().items()}
         
-        # Ensure 'region' and 'tipodemedio' are in key_map, as they are generated by the app
-        if norm_key("Region") not in key_map: key_map[norm_key("Region")] = norm_key("Region")
-        if norm_key("Tipo de Medio") not in key_map: key_map[norm_key("Tipo de Medio")] = norm_key("Tipo de Medio")
-
-
         for row in all_processed_rows:
-            # 1. Normalizar Tipo de Medio (siempre aplicar)
-            original_tipo_medio = str(row.get(key_map.get("tipodemedio"), "Otro"))
-            row[key_map.get("tipodemedio")] = normalizar_tipo_medio(original_tipo_medio)
-
-            # 2. Normalizar Nombre del Medio (específico para internet) y actualizar Tipo de Medio si aplica
-            current_medio_raw = str(row.get(key_map.get("medio"), ""))
-            current_medio_norm = norm_key(current_medio_raw)
-
-            if current_medio_norm in internet_map:
-                row[key_map.get("medio")] = internet_map[current_medio_norm] # Usar nombre mapeado
-                row[key_map.get("tipodemedio")] = "Internet" # Forzar tipo Internet si se mapeó
-                current_medio_norm = norm_key(internet_map[current_medio_norm]) # Actualizar para la región
-            
-            # 3. Mapear Región usando el nombre del medio (ya sea original o normalizado)
-            row[key_map.get("region")] = region_map.get(current_medio_norm, "N/A")
-            
-            # 4. Ajustar enlaces según el tipo de medio (usa el tipo_de_medio actualizado)
+            medio_key = str(row.get(key_map.get("medio"), "")).lower().strip()
+            # Aplicar mapeo de internet si existe
+            if medio_key in internet_map:
+                row[key_map.get("medio")] = internet_map[medio_key]
+                row[key_map.get("tipodemedio")] = "Internet" # Asegurar el tipo de medio correcto
+            # Aplicar mapeo de región
+            row[key_map.get("region")] = region_map.get(norm_key(row.get(key_map.get("medio"))), "N/A")
+            # Arreglar enlaces según el tipo de medio (ya normalizado)
             fix_links_by_media_type(row, key_map)
-            
+
         s.update(label="✅ **Paso 2/5:** Mapeos aplicados", state="complete")
         
     gc.collect()
@@ -798,7 +770,7 @@ def main():
             with st.expander("⚙️ Opcional: Usar Modelos Personalizados (.pkl)"):
                 st.info("Si subes un archivo aquí, se usará en lugar del análisis con IA (excepto para Subtema, que siempre usa IA).")
                 tono_pkl_file = st.file_uploader("Sube `pipeline_sentimiento.pkl` para Tono", type=["pkl"])
-                tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
+                tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl")
 
             if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
                 if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
