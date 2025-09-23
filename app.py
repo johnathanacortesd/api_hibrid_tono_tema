@@ -250,7 +250,6 @@ def hamdist(a: int, b: int) -> int:
 @st.cache_data(ttl=3600)
 def get_embedding(texto: str) -> Optional[List[float]]:
     if not texto: return None
-    key = hashlib.md5(texto[:2000].encode("utf-8")).hexdigest()
     try:
         resp = call_with_retries(openai.Embedding.create, input=[texto[:2000]], model=OPENAI_MODEL_EMBEDDING)
         return resp["data"][0]["embedding"]
@@ -683,10 +682,10 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             if medio_key in internet_map:
                 row[key_map.get("medio")] = internet_map[medio_key]
                 row[key_map.get("tipodemedio")] = "Internet"
-            fix_links_by_media_type(row, key_map) # Llamada a la función restaurada
+            fix_links_by_media_type(row, key_map)
         s.update(label="✅ **Paso 2/5:** Mapeos aplicados", state="complete")
         
-    gc.collect() # Limpiar memoria
+    gc.collect()
 
     rows_to_analyze = [row for row in all_processed_rows if not row.get("is_duplicate")]
     if rows_to_analyze:
@@ -716,17 +715,18 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
 
         with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
             p_bar = st.progress(0)
+            clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
+            
             if tema_pkl_file:
-                st.write(f"🤖 Usando `pipeline_tema.pkl` para {len(rows_to_analyze)} noticias...")
-                p_bar.progress(0.5)
-                temas_finales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
-                if temas_finales is None: st.stop()
-                df_temp[key_map["tema"]] = temas_finales
-                df_temp[key_map["subtema"]] = temas_finales
-                p_bar.progress(1.0)
+                st.write(f"🤖 Usando `pipeline_tema.pkl` para Temas y la IA para Subtemas...")
+                temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
+                if temas_principales is None: st.stop()
+                df_temp[key_map["tema"]] = temas_principales
+                
+                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
+                df_temp[key_map["subtema"]] = subtemas
             else:
                 st.write(f"🤖 Usando IA para generar Tema y Subtema para {len(rows_to_analyze)} noticias...")
-                clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
                 subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
                 df_temp[key_map["subtema"]] = subtemas
                 temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
@@ -739,7 +739,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         for row in all_processed_rows:
             if not row.get("is_duplicate"): row.update(results_map.get(row["original_index"], {}))
     
-    gc.collect() # Limpiar memoria antes del paso final
+    gc.collect()
 
     with st.status("📊 **Paso 5/5:** Generando informe final", expanded=True) as s:
         st.write("📝 Compilando resultados y generando Excel...")
@@ -798,7 +798,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.8 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.9 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
