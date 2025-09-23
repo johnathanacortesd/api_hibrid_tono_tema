@@ -321,6 +321,13 @@ def normalize_title_for_comparison(title: Any) -> str:
     cleaned = tmp[0] if tmp else title
     return re.sub(r"\W+", " ", cleaned).lower().strip()
 
+# <<< FUNCIÓN REINSERTADA Y CORREGIDA
+def normalizar_tipo_medio(tipo_raw: str) -> str:
+    if not isinstance(tipo_raw, str): return str(tipo_raw)
+    t = unidecode(tipo_raw.strip().lower())
+    mapping = { "fm": "Radio", "am": "Radio", "radio": "Radio", "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión", "diario": "Prensa", "prensa": "Prensa", "revista": "Prensa", "revistas": "Prensa", "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"}
+    return mapping.get(t, "Otro")
+
 # ======================================
 # Embeddings con cache
 # ======================================
@@ -329,6 +336,7 @@ def get_embedding(texto: str) -> Optional[List[float]]:
     if not texto: return None
     key = hashlib.md5(texto[:2000].encode("utf-8")).hexdigest()
     try:
+        # Usar st.session_state como cache en memoria para la sesión actual
         if key in st.session_state: return st.session_state[key]
         resp = call_with_retries(openai.Embedding.create, input=[texto[:2000]], model=OPENAI_MODEL_EMBEDDING)
         emb = resp["data"][0]["embedding"]
@@ -380,6 +388,11 @@ def seleccionar_representante(indices: List[int], textos: List[str]) -> Tuple[in
 # ======================================
 # Análisis de tono (Reglas, IA y PKL)
 # ======================================
+def _build_brand_regex(marca: str, aliases: List[str]) -> str:
+    names = [marca] + [a for a in (aliases or []) if a]
+    patterns = [re.escape(unidecode(n.strip().lower())) for n in names if n.strip()]
+    return r"\b(" + "|".join(patterns) + r")\b" if patterns else r"(a^b)"
+
 class ClasificadorTonoUltraV2:
     def __init__(self, marca: str, aliases: List[str]):
         self.marca = marca
@@ -622,7 +635,6 @@ def run_dossier_logic(sheet):
     for idx, row in enumerate(split_rows):
         row.update({"original_index": idx, "is_duplicate": False})
 
-    # Usar la nueva lógica de duplicados
     processed_rows = detectar_duplicados_avanzado(split_rows, key_map)
     
     for row in processed_rows:
@@ -800,7 +812,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.4 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v3.5 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
