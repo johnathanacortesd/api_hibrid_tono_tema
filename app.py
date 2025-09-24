@@ -667,7 +667,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         internet_map = {str(k).lower().strip(): v for k, v in pd.Series(df_internet.iloc[:, 1].values, index=df_internet.iloc[:, 0]).to_dict().items()}
         
         for row in all_processed_rows:
-            # Primero, obtener la clave del medio original para la búsqueda
             original_medio_key = str(row.get(key_map.get("medio"), "")).lower().strip()
             
             # 1. Mapear la región usando la clave del medio original
@@ -793,7 +792,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.5 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
