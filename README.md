@@ -21,7 +21,7 @@ Una aplicación web avanzada construida con **Streamlit**, diseñada para analiz
 *   **⚙️ Mapeo y Normalización de Datos:**
     *   **Regiones:** Asigna automáticamente la región a cada medio utilizando un archivo de mapeo externo.
     *   **Tipos de Medio:** Estandariza las categorías (ej. "AM", "FM" -> "Radio"; "Cable", "Aire" -> "Televisión").
-    *   **Nombres de Medios:** Normaliza los nombres de medios de internet para una agrupación consistente (ej. `elespectador.com` -> `El Espectador`).
+    *   **Nombres de Medios:** Normaliza los nombres de medios de internet para una agrupación consistente (ej. `El Espectador (Online)` -> `elespectador.com`).
 
 *   **📊 Reportes y Visualización:**
     *   Genera un informe detallado en formato `.xlsx` con todas las columnas originales y las nuevas clasificaciones.
