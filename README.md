@@ -2,6 +2,9 @@
 
 Una aplicación web avanzada construida con **Streamlit**, diseñada para analizar y clasificar grandes volúmenes de noticias en español 🇪🇸🇨🇴. Esta herramienta utiliza un modelo híbrido que combina reglas de negocio, modelos de Machine Learning pre-entrenados y la potencia de la API de OpenAI (`gpt-4.1-nano`) para ofrecer un análisis detallado de tono, tema y subtema, adaptado a las necesidades de diferentes clientes.
 
+[![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
+
+
 ---
 
 ## ✨ Características Principales
