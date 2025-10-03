@@ -186,10 +186,20 @@ def corregir_texto(text: Any) -> Any:
     return text
 
 def normalizar_tipo_medio(tipo_raw: str) -> str:
+    # <--- CORRECCIÓN INICIADA
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
-    mapping = { "fm": "Radio", "am": "Radio", "radio": "Radio", "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión", "diario": "Prensa", "prensa": "Prensa", "revista": "Prensa", "revistas": "Prensa", "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"}
-    return mapping.get(t, "Otro")
+    mapping = {
+        "fm": "Radio", "am": "Radio", "radio": "Radio",
+        "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
+        "diario": "Prensa", "prensa": "Prensa",
+        "revista": "Revista", "revistas": "Revista", # Esta línea se cambió para mapear a "Revista"
+        "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
+    }
+    # Mejora: Si no está en el mapa, devuelve el valor original capitalizado en lugar de "Otro"
+    default_value = str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro"
+    return mapping.get(t, default_value)
+    # <--- CORRECCIÓN FINALIZADA
 
 def simhash(texto: str) -> int:
     if not texto: return 0
@@ -597,16 +607,24 @@ def run_dossier_logic(sheet):
     return processed_rows, key_map
 
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
+    # <--- CORRECCIÓN INICIADA
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
-    tipo = normalizar_tipo_medio(str(row.get(tkey, ""))) # Ya normalizado antes, pero se mantiene la llamada por seguridad
+    tipo = row.get(tkey, "") # El tipo de medio ya debería estar normalizado en este punto
     ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
-    if tipo in ["Radio", "Televisión"]: row[ls_key] = {"value": "", "url": None}
-    elif tipo == "Internet": row[ln_key], row[ls_key] = ls, ln
-    elif tipo == "Prensa":
-        if not has_url(ln) and has_url(ls): row[ln_key] = ls
+    
+    if tipo in ["Radio", "Televisión"]: 
         row[ls_key] = {"value": "", "url": None}
+    elif tipo == "Internet": 
+        row[ln_key], row[ls_key] = ls, ln
+    # Se incluye "Revista" para que se trate como medio impreso
+    elif tipo in ["Prensa", "Revista"]:
+        if not has_url(ln) and has_url(ls): 
+            row[ln_key] = ls
+        row[ls_key] = {"value": "", "url": None}
+    # <--- CORRECCIÓN FINALIZADA
+
 
 def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
