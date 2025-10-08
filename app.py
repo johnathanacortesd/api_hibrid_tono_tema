@@ -43,7 +43,7 @@ SIMILARITY_THRESHOLD_TEMAS = 0.85
 SIMILARITY_THRESHOLD_TITULOS = 0.95 # Elevado para ser más estricto con títulos casi idénticos
 MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 80
-NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
+NUM_TEMAS_PRINCIPALES = 25 # <<-- NUEVA CONSTANTE: Número de temas principales a generar
 
 # Lista de ciudades y gentilicios colombianos para filtrar
 CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
@@ -186,20 +186,19 @@ def corregir_texto(text: Any) -> Any:
     return text
 
 def normalizar_tipo_medio(tipo_raw: str) -> str:
-    # <--- CORRECCIÓN INICIADA
+    # <--- VERSIÓN CORREGIDA Y MEJORADA
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
         "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
-        "revista": "Revista", "revistas": "Revista", # Esta línea se cambió para mapear a "Revista"
+        "revista": "Revista", "revistas": "Revista", # Mapeo consistente a singular
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
     }
     # Mejora: Si no está en el mapa, devuelve el valor original capitalizado en lugar de "Otro"
     default_value = str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro"
     return mapping.get(t, default_value)
-    # <--- CORRECCIÓN FINALIZADA
 
 def simhash(texto: str) -> int:
     if not texto: return 0
@@ -425,6 +424,7 @@ class ClasificadorTemaDinamico:
         
         return [mapa_idx_a_subtema.get(i, "Sin tema") for i in range(n)]
 
+# <<-- INICIO: NUEVA FUNCIÓN PARA CONSOLIDAR TEMAS -->>
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
     subtema_counts = Counter(subtemas)
@@ -484,17 +484,18 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
         p_bar.progress(0.9, "✨ Asignando subtemas únicos a los temas principales...")
         emb_temas_finales = {name: get_embedding(name) for name in set(mapa_temas_finales.values())}
         valid_theme_names = [name for name, emb in emb_temas_finales.items() if emb]
-        emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
-
-        for singleton in singletons:
-            emb_singleton = get_embedding(singleton)
-            if emb_singleton is not None and len(valid_theme_names) > 0:
-                sims = cosine_similarity([emb_singleton], emb_theme_matrix)
-                best_match_idx = np.argmax(sims)
-                mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
+        if valid_theme_names:
+            emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
+            for singleton in singletons:
+                emb_singleton = get_embedding(singleton)
+                if emb_singleton is not None and len(valid_theme_names) > 0:
+                    sims = cosine_similarity([emb_singleton], emb_theme_matrix)
+                    best_match_idx = np.argmax(sims)
+                    mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
 
     p_bar.progress(1.0, "✅ Consolidación de temas completada.")
     return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
+# <<-- FIN: NUEVA FUNCIÓN PARA CONSOLIDAR TEMAS -->>
 
 def analizar_temas_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[List[str]]:
     try:
@@ -607,24 +608,26 @@ def run_dossier_logic(sheet):
     return processed_rows, key_map
 
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
-    # <--- CORRECCIÓN INICIADA
+    # <--- VERSIÓN CORREGIDA Y MEJORADA
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
     tipo = row.get(tkey, "") # El tipo de medio ya debería estar normalizado en este punto
     ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
     
-    if tipo in ["Radio", "Televisión"]: 
+    if tipo in ["Radio", "Televisión"]:
+        # El link de streaming (si existe) es el más relevante, se mueve a "Link Nota"
+        if has_url(ls):
+            row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
-    elif tipo == "Internet": 
+    elif tipo == "Internet":
+        # Se intercambian, asumiendo que el link correcto está en streaming
         row[ln_key], row[ls_key] = ls, ln
-    # Se incluye "Revista" para que se trate como medio impreso
     elif tipo in ["Prensa", "Revista"]:
+        # Si no hay link de nota pero sí de streaming, se mueve
         if not has_url(ln) and has_url(ls): 
             row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
-    # <--- CORRECCIÓN FINALIZADA
-
 
 def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
@@ -727,13 +730,17 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             st.markdown(f'**Resultados de Tono:** <span style="color:green;">{positivos} Positivos</span>, <span style="color:red;">{negativos} Negativos</span>, <span style="color:gray;">{neutros} Neutros</span>', unsafe_allow_html=True)
             s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
 
+        # <<-- INICIO: LÓGICA DE TEMAS MODIFICADA -->>
         with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
             p_bar = st.progress(0)
+            
+            # PASO 4.1: Generar subtemas específicos
             st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
             clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
             subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             df_temp[key_map["subtema"]] = subtemas
 
+            # PASO 4.2: Consolidar subtemas en temas principales
             if tema_pkl_file:
                 st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
@@ -746,6 +753,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             
             st.success(f"✅ **{len(set(df_temp[key_map['tema']]))}** temas principales y **{len(set(df_temp[key_map['subtema']]))}** subtemas únicos identificados")
             s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
+        # <<-- FIN: LÓGICA DE TEMAS MODIFICADA -->>
         
         results_map = df_temp.set_index("original_index").to_dict("index")
         for row in all_processed_rows:
