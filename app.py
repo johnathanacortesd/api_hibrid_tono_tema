@@ -53,7 +53,7 @@ GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capit
 # Lexicos y patrones para analisis de tono
 # ======================================
 STOPWORDS_ES = set(""" a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada """.split())
-POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", "atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
+POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
 NEG_VARIANTS = [r"demanda|denuncia|sanciona|multa|investiga|critica", r"cae|baja|pierde|crisis|quiebra|default", r"fraude|escandalo|irregularidad", r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga", r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora", r"problema(s|tica|tico)?|dificultad(es)?", r"retras(o|a|ar|ado)", r"perdida(s)?|deficit", r"conflict(o|os)?|disputa(s)?", r"rechaz(a|o|ar|ado)", r"negativ(o|a|os|as)", r"preocupa(cion|nte|do)?", r"alarma(nte)?|alerta", r"riesgo(s)?|amenaza(s)?"]
 CRISIS_KEYWORDS = re.compile(r"\b(crisis|emergencia|desastre|deslizamiento|inundaci[oó]n|afectaciones|damnificados|tragedia|zozobra|alerta)\b", re.IGNORECASE)
 RESPONSE_VERBS = re.compile(r"\b(atiend(e|en|iendo)|activ(a|o|ando)|decret(a|o|ando)|responde(r|iendo)|trabaj(a|ando)|lidera(ndo)?|enfrenta(ndo)?|gestiona(ndo)?|declar(o|a|ando)|anunci(a|o|ando))\b", re.IGNORECASE)
@@ -186,17 +186,20 @@ def corregir_texto(text: Any) -> Any:
     return text
 
 def normalizar_tipo_medio(tipo_raw: str) -> str:
+    # <--- CORRECCIÓN INICIADA
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
         "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
-        "revista": "Revista", "revistas": "Revista",
+        "revista": "Revista", "revistas": "Revista", # Esta línea se cambió para mapear a "Revista"
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
     }
+    # Mejora: Si no está en el mapa, devuelve el valor original capitalizado en lugar de "Otro"
     default_value = str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro"
     return mapping.get(t, default_value)
+    # <--- CORRECCIÓN FINALIZADA
 
 def simhash(texto: str) -> int:
     if not texto: return 0
@@ -481,14 +484,14 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
         p_bar.progress(0.9, "✨ Asignando subtemas únicos a los temas principales...")
         emb_temas_finales = {name: get_embedding(name) for name in set(mapa_temas_finales.values())}
         valid_theme_names = [name for name, emb in emb_temas_finales.items() if emb]
-        if valid_theme_names:
-            emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
-            for singleton in singletons:
-                emb_singleton = get_embedding(singleton)
-                if emb_singleton is not None and len(valid_theme_names) > 0:
-                    sims = cosine_similarity([emb_singleton], emb_theme_matrix)
-                    best_match_idx = np.argmax(sims)
-                    mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
+        emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
+
+        for singleton in singletons:
+            emb_singleton = get_embedding(singleton)
+            if emb_singleton is not None and len(valid_theme_names) > 0:
+                sims = cosine_similarity([emb_singleton], emb_theme_matrix)
+                best_match_idx = np.argmax(sims)
+                mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
 
     p_bar.progress(1.0, "✅ Consolidación de temas completada.")
     return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
@@ -603,31 +606,24 @@ def run_dossier_logic(sheet):
     
     return processed_rows, key_map
 
-# <<-- INICIO: FUNCIÓN DE ENLACES CORREGIDA -->>
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
+    # <--- CORRECCIÓN INICIADA
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
-    
-    tipo = row.get(tkey, "")
-    ln = row.get(ln_key) or {"value": "", "url": None}
-    ls = row.get(ls_key) or {"value": "", "url": None}
+    tipo = row.get(tkey, "") # El tipo de medio ya debería estar normalizado en este punto
+    ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
     
     if tipo in ["Radio", "Televisión"]: 
-        # Para Radio/TV, el link de streaming es el que importa y debe ir en "Link Nota"
-        # El link original en "Link Nota" se descarta
-        row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
     elif tipo == "Internet": 
-        # Para Internet, el link de la noticia viene en Streaming, se intercambian
         row[ln_key], row[ls_key] = ls, ln
+    # Se incluye "Revista" para que se trate como medio impreso
     elif tipo in ["Prensa", "Revista"]:
-        # Para Medios impresos, si no hay link de nota pero sí de streaming, se mueve.
         if not has_url(ln) and has_url(ls): 
             row[ln_key] = ls
-        # Siempre se limpia el link de streaming para impresos
         row[ls_key] = {"value": "", "url": None}
-# <<-- FIN: FUNCIÓN DE ENLACES CORREGIDA -->>
+    # <--- CORRECCIÓN FINALIZADA
 
 
 def generate_output_excel(all_processed_rows, key_map):
@@ -814,7 +810,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.8 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
