@@ -186,20 +186,17 @@ def corregir_texto(text: Any) -> Any:
     return text
 
 def normalizar_tipo_medio(tipo_raw: str) -> str:
-    # <--- CORRECCIÓN INICIADA
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
         "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
-        "revista": "Revista", "revistas": "Revista", # Esta línea se cambió para mapear a "Revista"
+        "revista": "Revista", "revistas": "Revistas",
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
     }
-    # Mejora: Si no está en el mapa, devuelve el valor original capitalizado en lugar de "Otro"
     default_value = str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro"
     return mapping.get(t, default_value)
-    # <--- CORRECCIÓN FINALIZADA
 
 def simhash(texto: str) -> int:
     if not texto: return 0
@@ -484,14 +481,15 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
         p_bar.progress(0.9, "✨ Asignando subtemas únicos a los temas principales...")
         emb_temas_finales = {name: get_embedding(name) for name in set(mapa_temas_finales.values())}
         valid_theme_names = [name for name, emb in emb_temas_finales.items() if emb]
-        emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
+        if valid_theme_names:
+            emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
 
-        for singleton in singletons:
-            emb_singleton = get_embedding(singleton)
-            if emb_singleton is not None and len(valid_theme_names) > 0:
-                sims = cosine_similarity([emb_singleton], emb_theme_matrix)
-                best_match_idx = np.argmax(sims)
-                mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
+            for singleton in singletons:
+                emb_singleton = get_embedding(singleton)
+                if emb_singleton is not None and len(valid_theme_names) > 0:
+                    sims = cosine_similarity([emb_singleton], emb_theme_matrix)
+                    best_match_idx = np.argmax(sims)
+                    mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
 
     p_bar.progress(1.0, "✅ Consolidación de temas completada.")
     return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
@@ -606,24 +604,25 @@ def run_dossier_logic(sheet):
     
     return processed_rows, key_map
 
+# <<-- INICIO: FUNCIÓN DE ENLACES RESTAURADA A LA VERSIÓN ORIGINAL -->>
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
-    # <--- CORRECCIÓN INICIADA
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
-    tipo = row.get(tkey, "") # El tipo de medio ya debería estar normalizado en este punto
-    ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
+    
+    tipo = row.get(tkey, "") 
+    ln = row.get(ln_key) or {"value": "", "url": None}
+    ls = row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
     
     if tipo in ["Radio", "Televisión"]: 
-        row[ls_key] = {"value": "", "url": None}
+        row[ln_key], row[ls_key] = ls, ln
     elif tipo == "Internet": 
         row[ln_key], row[ls_key] = ls, ln
-    # Se incluye "Revista" para que se trate como medio impreso
-    elif tipo in ["Prensa", "Revista"]:
+    elif tipo in ["Prensa", "Revistas"]:
         if not has_url(ln) and has_url(ls): 
             row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
-    # <--- CORRECCIÓN FINALIZADA
+# <<-- FIN: FUNCIÓN DE ENLACES RESTAURADA -->>
 
 
 def generate_output_excel(all_processed_rows, key_map):
@@ -810,7 +809,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.9 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
