@@ -43,7 +43,7 @@ SIMILARITY_THRESHOLD_TEMAS = 0.85
 SIMILARITY_THRESHOLD_TITULOS = 0.95 # Elevado para ser más estricto con títulos casi idénticos
 MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 80
-NUM_TEMAS_PRINCIPALES = 25 # <<-- NUEVA CONSTANTE: Número de temas principales a generar
+NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
 
 # Lista de ciudades y gentilicios colombianos para filtrar
 CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
@@ -53,7 +53,7 @@ GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capit
 # Lexicos y patrones para analisis de tono
 # ======================================
 STOPWORDS_ES = set(""" a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada """.split())
-POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
+POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", "atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
 NEG_VARIANTS = [r"demanda|denuncia|sanciona|multa|investiga|critica", r"cae|baja|pierde|crisis|quiebra|default", r"fraude|escandalo|irregularidad", r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga", r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora", r"problema(s|tica|tico)?|dificultad(es)?", r"retras(o|a|ar|ado)", r"perdida(s)?|deficit", r"conflict(o|os)?|disputa(s)?", r"rechaz(a|o|ar|ado)", r"negativ(o|a|os|as)", r"preocupa(cion|nte|do)?", r"alarma(nte)?|alerta", r"riesgo(s)?|amenaza(s)?"]
 CRISIS_KEYWORDS = re.compile(r"\b(crisis|emergencia|desastre|deslizamiento|inundaci[oó]n|afectaciones|damnificados|tragedia|zozobra|alerta)\b", re.IGNORECASE)
 RESPONSE_VERBS = re.compile(r"\b(atiend(e|en|iendo)|activ(a|o|ando)|decret(a|o|ando)|responde(r|iendo)|trabaj(a|ando)|lidera(ndo)?|enfrenta(ndo)?|gestiona(ndo)?|declar(o|a|ando)|anunci(a|o|ando))\b", re.IGNORECASE)
@@ -186,17 +186,15 @@ def corregir_texto(text: Any) -> Any:
     return text
 
 def normalizar_tipo_medio(tipo_raw: str) -> str:
-    # <--- VERSIÓN CORREGIDA Y MEJORADA
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
         "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
-        "revista": "Revista", "revistas": "Revista", # Mapeo consistente a singular
+        "revista": "Revista", "revistas": "Revista",
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
     }
-    # Mejora: Si no está en el mapa, devuelve el valor original capitalizado en lugar de "Otro"
     default_value = str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro"
     return mapping.get(t, default_value)
 
@@ -424,7 +422,6 @@ class ClasificadorTemaDinamico:
         
         return [mapa_idx_a_subtema.get(i, "Sin tema") for i in range(n)]
 
-# <<-- INICIO: NUEVA FUNCIÓN PARA CONSOLIDAR TEMAS -->>
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
     subtema_counts = Counter(subtemas)
@@ -495,7 +492,6 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
 
     p_bar.progress(1.0, "✅ Consolidación de temas completada.")
     return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
-# <<-- FIN: NUEVA FUNCIÓN PARA CONSOLIDAR TEMAS -->>
 
 def analizar_temas_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[List[str]]:
     try:
@@ -607,27 +603,32 @@ def run_dossier_logic(sheet):
     
     return processed_rows, key_map
 
+# <<-- INICIO: FUNCIÓN DE ENLACES CORREGIDA -->>
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
-    # <--- VERSIÓN CORREGIDA Y MEJORADA
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
-    tipo = row.get(tkey, "") # El tipo de medio ya debería estar normalizado en este punto
-    ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
+    
+    tipo = row.get(tkey, "")
+    ln = row.get(ln_key) or {"value": "", "url": None}
+    ls = row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
     
-    if tipo in ["Radio", "Televisión"]:
-        # El link de streaming (si existe) es el más relevante, se mueve a "Link Nota"
-        if has_url(ls):
-            row[ln_key] = ls
+    if tipo in ["Radio", "Televisión"]: 
+        # Para Radio/TV, el link de streaming es el que importa y debe ir en "Link Nota"
+        # El link original en "Link Nota" se descarta
+        row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
-    elif tipo == "Internet":
-        # Se intercambian, asumiendo que el link correcto está en streaming
+    elif tipo == "Internet": 
+        # Para Internet, el link de la noticia viene en Streaming, se intercambian
         row[ln_key], row[ls_key] = ls, ln
     elif tipo in ["Prensa", "Revista"]:
-        # Si no hay link de nota pero sí de streaming, se mueve
+        # Para Medios impresos, si no hay link de nota pero sí de streaming, se mueve.
         if not has_url(ln) and has_url(ls): 
             row[ln_key] = ls
+        # Siempre se limpia el link de streaming para impresos
         row[ls_key] = {"value": "", "url": None}
+# <<-- FIN: FUNCIÓN DE ENLACES CORREGIDA -->>
+
 
 def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
@@ -730,17 +731,13 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             st.markdown(f'**Resultados de Tono:** <span style="color:green;">{positivos} Positivos</span>, <span style="color:red;">{negativos} Negativos</span>, <span style="color:gray;">{neutros} Neutros</span>', unsafe_allow_html=True)
             s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
 
-        # <<-- INICIO: LÓGICA DE TEMAS MODIFICADA -->>
         with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
             p_bar = st.progress(0)
-            
-            # PASO 4.1: Generar subtemas específicos
             st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
             clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
             subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             df_temp[key_map["subtema"]] = subtemas
 
-            # PASO 4.2: Consolidar subtemas en temas principales
             if tema_pkl_file:
                 st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
@@ -753,7 +750,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             
             st.success(f"✅ **{len(set(df_temp[key_map['tema']]))}** temas principales y **{len(set(df_temp[key_map['subtema']]))}** subtemas únicos identificados")
             s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
-        # <<-- FIN: LÓGICA DE TEMAS MODIFICADA -->>
         
         results_map = df_temp.set_index("original_index").to_dict("index")
         for row in all_processed_rows:
@@ -818,7 +814,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.8 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
