@@ -34,14 +34,32 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# =================================================================================
+# === CAMBIO IMPORTANTE: ACTUALIZACIÓN DEL MODELO Y ADVERTENCIA DE COSTO ===
+# =================================================================================
+# Se actualiza el modelo de clasificación al especificado: gpt-5-nano-2025-08-07.
+#
+# ADVERTENCIA CRÍTICA SOBRE EL COSTO:
+# El costo de $0.05 por 1,000 tokens de entrada que mencionaste es EXTREMADAMENTE ALTO
+# en comparación con los modelos "nano" actuales (ej. gpt-4o-mini).
+# Este cambio podría aumentar los costos de procesamiento en más de 100 VECES.
+# Por favor, monitorea tu uso y facturación en la plataforma de OpenAI de cerca.
+#
+# DISPONIBILIDAD DEL MODELO:
+# Este código funcionará solo si "gpt-5-nano-2025-08-07" es un identificador de modelo
+# válido y activo en tu cuenta de OpenAI. De lo contrario, la API devolverá un error.
+# =================================================================================
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
-OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
+OPENAI_MODEL_CLASIFICACION = "gpt-5-nano-2025-08-07" # <-- MODELO ACTUALIZADO
 
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
 SIMILARITY_THRESHOLD_TEMAS = 0.85
 SIMILARITY_THRESHOLD_TITULOS = 0.95 # Elevado para ser más estricto con títulos casi idénticos
-MAX_TOKENS_PROMPT_TXT = 4000
+
+# Aumentado para aprovechar el mayor contexto del nuevo modelo, pero con precaución por el costo.
+MAX_TOKENS_PROMPT_TXT = 8000 # <-- LÍMITE DE CONTEXTO AJUSTADO
+
 WINDOW = 80
 NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
 
@@ -186,20 +204,17 @@ def corregir_texto(text: Any) -> Any:
     return text
 
 def normalizar_tipo_medio(tipo_raw: str) -> str:
-    # <--- CORRECCIÓN INICIADA
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
         "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
-        "revista": "Revista", "revistas": "Revista", # Esta línea se cambió para mapear a "Revista"
+        "revista": "Revista", "revistas": "Revista",
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
     }
-    # Mejora: Si no está en el mapa, devuelve el valor original capitalizado en lugar de "Otro"
     default_value = str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro"
     return mapping.get(t, default_value)
-    # <--- CORRECCIÓN FINALIZADA
 
 def simhash(texto: str) -> int:
     if not texto: return 0
@@ -607,10 +622,9 @@ def run_dossier_logic(sheet):
     return processed_rows, key_map
 
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
-    # <--- CORRECCIÓN INICIADA
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
-    tipo = row.get(tkey, "") # El tipo de medio ya debería estar normalizado en este punto
+    tipo = row.get(tkey, "") 
     ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
     
@@ -618,13 +632,10 @@ def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
         row[ls_key] = {"value": "", "url": None}
     elif tipo == "Internet": 
         row[ln_key], row[ls_key] = ls, ln
-    # Se incluye "Revista" para que se trate como medio impreso
     elif tipo in ["Prensa", "Revista"]:
         if not has_url(ln) and has_url(ls): 
             row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
-    # <--- CORRECCIÓN FINALIZADA
-
 
 def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
@@ -715,7 +726,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 if resultados_tono is None: st.stop()
                 p_bar.progress(1.0)
             else:
-                st.write(f"🤖 Usando IA para análisis de tono de {len(rows_to_analyze)} noticias...")
+                st.write(f"🤖 Usando IA ({OPENAI_MODEL_CLASIFICACION}) para análisis de tono de {len(rows_to_analyze)} noticias...")
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             
@@ -729,7 +740,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
 
         with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
             p_bar = st.progress(0)
-            st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
+            st.write(f"🤖 Generando Subtemas específicos con IA ({OPENAI_MODEL_CLASIFICACION}) para {len(rows_to_analyze)} noticias...")
             clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
             subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             df_temp[key_map["subtema"]] = subtemas
@@ -740,7 +751,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 if temas_principales is None: st.stop()
                 df_temp[key_map["tema"]] = temas_principales
             else:
-                st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
+                st.write(f"🤖 Usando IA ({OPENAI_MODEL_CLASIFICACION}) para consolidar Subtemas en Temas principales...")
                 temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
                 df_temp[key_map["tema"]] = temas_principales
             
@@ -810,7 +821,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
