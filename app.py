@@ -186,20 +186,17 @@ def corregir_texto(text: Any) -> Any:
     return text
 
 def normalizar_tipo_medio(tipo_raw: str) -> str:
-    # <--- CORRECCIÓN INICIADA
     if not isinstance(tipo_raw, str): return str(tipo_raw)
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
         "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
-        "revista": "Revista", "revistas": "Revista", # Esta línea se cambió para mapear a "Revista"
+        "revista": "Revista", "revistas": "Revista",
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
     }
-    # Mejora: Si no está en el mapa, devuelve el valor original capitalizado en lugar de "Otro"
     default_value = str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro"
     return mapping.get(t, default_value)
-    # <--- CORRECCIÓN FINALIZADA
 
 def simhash(texto: str) -> int:
     if not texto: return 0
@@ -607,10 +604,9 @@ def run_dossier_logic(sheet):
     return processed_rows, key_map
 
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
-    # <--- CORRECCIÓN INICIADA
     tkey, ln_key, ls_key = key_map.get("tipodemedio"), key_map.get("link_nota"), key_map.get("link_streaming")
     if not (tkey and ln_key and ls_key): return
-    tipo = row.get(tkey, "") # El tipo de medio ya debería estar normalizado en este punto
+    tipo = row.get(tkey, "")
     ln, ls = row.get(ln_key) or {"value": "", "url": None}, row.get(ls_key) or {"value": "", "url": None}
     has_url = lambda x: isinstance(x, dict) and bool(x.get("url"))
     
@@ -618,12 +614,10 @@ def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
         row[ls_key] = {"value": "", "url": None}
     elif tipo == "Internet": 
         row[ln_key], row[ls_key] = ls, ln
-    # Se incluye "Revista" para que se trate como medio impreso
     elif tipo in ["Prensa", "Revista"]:
         if not has_url(ln) and has_url(ls): 
             row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
-    # <--- CORRECCIÓN FINALIZADA
 
 
 def generate_output_excel(all_processed_rows, key_map):
@@ -687,15 +681,12 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         for row in all_processed_rows:
             original_medio_key = str(row.get(key_map.get("medio"), "")).lower().strip()
             
-            # 1. Mapear la región usando la clave del medio original
             row[key_map.get("region")] = region_map.get(original_medio_key, "N/A")
             
-            # 2. Mapear y normalizar el medio de Internet si existe
             if original_medio_key in internet_map:
                 row[key_map.get("medio")] = internet_map[original_medio_key]
                 row[key_map.get("tipodemedio")] = "Internet"
             
-            # 3. Arreglar los enlaces basándose en el Tipo de Medio final
             fix_links_by_media_type(row, key_map)
 
         s.update(label="✅ **Paso 2/5:** Mapeos aplicados", state="complete")
@@ -762,6 +753,118 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         st.session_state.update({"brand_name": brand_name, "total_rows": len(all_processed_rows), "unique_rows": len(rows_to_analyze), "duplicates": len(all_processed_rows) - len(rows_to_analyze), "process_duration": duration_str})
         s.update(label="✅ **Paso 5/5:** Proceso completado", state="complete")
 
+# ======================================
+# INICIO: Funciones para Análisis Rápido
+# ======================================
+
+async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col: str, brand_name: str, aliases: List[str]):
+    """Función asíncrona para ejecutar el análisis de Tono y Tema en un DataFrame."""
+    try:
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        openai.aiosession.set(None)
+    except Exception:
+        st.error("❌ Error: OPENAI_API_KEY no encontrado en los Secrets de Streamlit.")
+        st.stop()
+
+    df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
+    
+    with st.status("🎯 **Paso 1/2:** Analizando Tono...", expanded=True) as s:
+        p_bar = st.progress(0, "Iniciando análisis de tono...")
+        clasif_tono = ClasificadorTonoUltraV2(brand_name, aliases)
+        # Pasamos las columnas originales como 'resumen_puro' y 'titulos_puros' para la agrupación
+        resultados_tono = await clasif_tono.procesar_lote_async(df["texto_analisis"], p_bar, df[summary_col], df[title_col])
+        df['Tono AI'] = [res["tono"] for res in resultados_tono]
+        df['Justificacion Tono'] = [res.get("justificacion", "") for res in resultados_tono]
+        s.update(label="✅ **Paso 1/2:** Tono Analizado", state="complete")
+
+    with st.status("🏷️ **Paso 2/2:** Analizando Tema...", expanded=True) as s:
+        p_bar = st.progress(0, "Generando subtemas...")
+        clasif_temas = ClasificadorTemaDinamico(brand_name, aliases)
+        subtemas = clasif_temas.procesar_lote(df["texto_analisis"], p_bar, df[summary_col], df[title_col])
+        df['Subtema'] = subtemas
+        
+        p_bar.progress(0.5, "Consolidando temas principales...")
+        temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
+        df['Tema'] = temas_principales
+        s.update(label="✅ **Paso 2/2:** Tema Analizado", state="complete")
+        
+    df.drop(columns=['texto_analisis'], inplace=True)
+    return df
+
+def generate_quick_analysis_excel(df: pd.DataFrame) -> bytes:
+    """Genera un archivo Excel a partir de un DataFrame para la descarga."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Analisis_Rapido')
+    return output.getvalue()
+
+def render_quick_analysis_tab():
+    """Renderiza la interfaz de usuario para la pestaña de análisis rápido."""
+    st.header("Análisis Rápido de Tono y Tema")
+    st.info("Sube un archivo Excel, selecciona las columnas de 'Título' y 'Resumen', y obtén un análisis de Tono y Tema al instante.")
+
+    if 'quick_analysis_result' in st.session_state:
+        st.success("🎉 Análisis Rápido Completado")
+        st.dataframe(st.session_state.quick_analysis_result.head(10))
+        
+        excel_data = generate_quick_analysis_excel(st.session_state.quick_analysis_result)
+        st.download_button(
+            label="📥 **Descargar Resultados del Análisis Rápido**",
+            data=excel_data,
+            file_name=f"Analisis_Rapido_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary"
+        )
+        if st.button("🔄 Realizar otro Análisis Rápido"):
+            del st.session_state.quick_analysis_result
+            if 'quick_analysis_df' in st.session_state:
+                del st.session_state.quick_analysis_df
+            st.rerun()
+        return
+
+    with st.form("quick_analysis_form"):
+        quick_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"])
+        
+        title_col, summary_col = None, None
+        if quick_file:
+            if 'quick_analysis_df' not in st.session_state or st.session_state.get('quick_file_name') != quick_file.name:
+                st.session_state.quick_analysis_df = pd.read_excel(quick_file)
+                st.session_state.quick_file_name = quick_file.name
+
+            df = st.session_state.quick_analysis_df
+            columns = df.columns.tolist()
+            st.write("---")
+            st.markdown("##### ✏️ Selecciona las columnas a analizar")
+            col1, col2 = st.columns(2)
+            title_col = col1.selectbox("Columna de **Título**", options=columns, index=0)
+            summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=1 if len(columns)>1 else 0)
+        
+        st.write("---")
+        st.markdown("##### 🏢 Configuración de Marca")
+        brand_name = st.text_input("**Marca Principal** (para contexto del análisis)", placeholder="Ej: Ecopetrol")
+        brand_aliases_text = st.text_area("**Alias y voceros** (opcional, separados por ;)", placeholder="Ej: Ricardo Roa Barragán", height=80)
+        
+        submitted = st.form_submit_button("🚀 **Analizar Tono y Tema**", use_container_width=True, type="primary")
+
+        if submitted:
+            if not all([quick_file, title_col, summary_col, brand_name]):
+                st.error("❌ Por favor, sube un archivo, selecciona las columnas y especifica el nombre de la marca.")
+            else:
+                aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
+                df_to_process = st.session_state.quick_analysis_df.copy()
+                
+                with st.spinner("🧠 La IA está trabajando... Esto puede tardar unos minutos."):
+                    result_df = asyncio.run(run_quick_analysis_async(df_to_process, title_col, summary_col, brand_name, aliases))
+                
+                st.session_state.quick_analysis_result = result_df
+                st.rerun()
+
+# ======================================
+# FIN: Funciones para Análisis Rápido
+# ======================================
+
+
 def main():
     load_custom_css()
     if not check_password(): return
@@ -769,48 +872,54 @@ def main():
     st.markdown('<div class="main-header">📰 Sistema de Análisis de Noticias con IA</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Análisis personalizable de Tono y Tema/Subtema</div>', unsafe_allow_html=True)
 
-    if not st.session_state.get("processing_complete", False):
-        with st.form("input_form"):
-            st.markdown("### 📂 Archivos de Entrada Obligatorios")
-            col1, col2, col3 = st.columns(3)
-            dossier_file = col1.file_uploader("**1. Dossier Principal** (.xlsx)", type=["xlsx"])
-            region_file = col2.file_uploader("**2. Mapeo de Región** (.xlsx)", type=["xlsx"])
-            internet_file = col3.file_uploader("**3. Mapeo Internet** (.xlsx)", type=["xlsx"])
-            
-            st.markdown("### 🏢 Configuración de Marca Obligatoria")
-            brand_name = st.text_input("**Marca Principal**", placeholder="Ej: Bancolombia")
-            brand_aliases_text = st.text_area("**Alias y voceros** (separados por ;)", placeholder="Ej: Ban;Juan Carlos Mora", height=80)
+    tab1, tab2 = st.tabs(["Análisis Completo", "Análisis Rápido (Tono y Tema)"])
 
-            with st.expander("⚙️ Opcional: Usar Modelos Personalizados (.pkl)"):
-                st.info("Si subes un archivo aquí, se usará en lugar del análisis con IA (excepto para Subtema, que siempre usa IA).")
-                tono_pkl_file = st.file_uploader("Sube `pipeline_sentimiento.pkl` para Tono", type=["pkl"])
-                tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
+    with tab1:
+        if not st.session_state.get("processing_complete", False):
+            with st.form("input_form"):
+                st.markdown("### 📂 Archivos de Entrada Obligatorios")
+                col1, col2, col3 = st.columns(3)
+                dossier_file = col1.file_uploader("**1. Dossier Principal** (.xlsx)", type=["xlsx"])
+                region_file = col2.file_uploader("**2. Mapeo de Región** (.xlsx)", type=["xlsx"])
+                internet_file = col3.file_uploader("**3. Mapeo Internet** (.xlsx)", type=["xlsx"])
+                
+                st.markdown("### 🏢 Configuración de Marca Obligatoria")
+                brand_name = st.text_input("**Marca Principal**", placeholder="Ej: Bancolombia", key="main_brand_name")
+                brand_aliases_text = st.text_area("**Alias y voceros** (separados por ;)", placeholder="Ej: Ban;Juan Carlos Mora", height=80, key="main_brand_aliases")
 
-            if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
-                if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
-                    st.error("❌ Faltan archivos o el nombre de la marca.")
-                else:
-                    aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
-                    asyncio.run(run_full_process_async(dossier_file, region_file, internet_file, brand_name, aliases, tono_pkl_file, tema_pkl_file))
-                    st.rerun()
-    else:
-        st.markdown("## 🎉 Análisis Completado Exitosamente")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.markdown(f'<div class="metric-card"><div class="metric-value">{st.session_state.total_rows}</div><div class="metric-label">📰 Total Noticias</div></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #28a745;">{st.session_state.unique_rows}</div><div class="metric-label">✅ Únicas</div></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #ff7f0e;">{st.session_state.duplicates}</div><div class="metric-label">🔄 Duplicados</div></div>', unsafe_allow_html=True)
-        c4.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #1f77b4;">{st.session_state.process_duration}</div><div class="metric-label">⏱️ Duración</div></div>', unsafe_allow_html=True)
+                with st.expander("⚙️ Opcional: Usar Modelos Personalizados (.pkl)"):
+                    st.info("Si subes un archivo aquí, se usará en lugar del análisis con IA (excepto para Subtema, que siempre usa IA).")
+                    tono_pkl_file = st.file_uploader("Sube `pipeline_sentimiento.pkl` para Tono", type=["pkl"])
+                    tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
 
-        st.markdown('<div class="success-card">', unsafe_allow_html=True)
-        st.download_button("📥 **DESCARGAR INFORME**", data=st.session_state.output_data, file_name=st.session_state.output_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
-        if st.button("🔄 **Nuevo Análisis**", use_container_width=True):
-            pwd = st.session_state.get("password_correct")
-            st.session_state.clear()
-            st.session_state.password_correct = pwd
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+                if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
+                    if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
+                        st.error("❌ Faltan archivos o el nombre de la marca.")
+                    else:
+                        aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
+                        asyncio.run(run_full_process_async(dossier_file, region_file, internet_file, brand_name, aliases, tono_pkl_file, tema_pkl_file))
+                        st.rerun()
+        else:
+            st.markdown("## 🎉 Análisis Completado Exitosamente")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.markdown(f'<div class="metric-card"><div class="metric-value">{st.session_state.total_rows}</div><div class="metric-label">📰 Total Noticias</div></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #28a745;">{st.session_state.unique_rows}</div><div class="metric-label">✅ Únicas</div></div>', unsafe_allow_html=True)
+            c3.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #ff7f0e;">{st.session_state.duplicates}</div><div class="metric-label">🔄 Duplicados</div></div>', unsafe_allow_html=True)
+            c4.markdown(f'<div class="metric-card"><div class="metric-value" style="color: #1f77b4;">{st.session_state.process_duration}</div><div class="metric-label">⏱️ Duración</div></div>', unsafe_allow_html=True)
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.7 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+            st.markdown('<div class="success-card">', unsafe_allow_html=True)
+            st.download_button("📥 **DESCARGAR INFORME**", data=st.session_state.output_data, file_name=st.session_state.output_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
+            if st.button("🔄 **Nuevo Análisis**", use_container_width=True):
+                pwd = st.session_state.get("password_correct")
+                st.session_state.clear()
+                st.session_state.password_correct = pwd
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    with tab2:
+        render_quick_analysis_tab()
+    
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.8 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
