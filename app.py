@@ -769,7 +769,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
         p_bar = st.progress(0, "Iniciando análisis de tono...")
         clasif_tono = ClasificadorTonoUltraV2(brand_name, aliases)
         # Pasamos las columnas originales como 'resumen_puro' y 'titulos_puros' para la agrupación
-        resultados_tono = await clasif_tono.procesar_lote_async(df["texto_analisis"], p_bar, df[summary_col], df[title_col])
+        resultados_tono = await clasif_tono.procesar_lote_async(df["texto_analisis"], p_bar, df[summary_col].fillna(''), df[title_col].fillna(''))
         df['Tono AI'] = [res["tono"] for res in resultados_tono]
         df['Justificacion Tono'] = [res.get("justificacion", "") for res in resultados_tono]
         s.update(label="✅ **Paso 1/2:** Tono Analizado", state="complete")
@@ -777,7 +777,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
     with st.status("🏷️ **Paso 2/2:** Analizando Tema...", expanded=True) as s:
         p_bar = st.progress(0, "Generando subtemas...")
         clasif_temas = ClasificadorTemaDinamico(brand_name, aliases)
-        subtemas = clasif_temas.procesar_lote(df["texto_analisis"], p_bar, df[summary_col], df[title_col])
+        subtemas = clasif_temas.procesar_lote(df["texto_analisis"], p_bar, df[summary_col].fillna(''), df[title_col].fillna(''))
         df['Subtema'] = subtemas
         
         p_bar.progress(0.5, "Consolidando temas principales...")
@@ -800,6 +800,7 @@ def render_quick_analysis_tab():
     st.header("Análisis Rápido de Tono y Tema")
     st.info("Sube un archivo Excel, selecciona las columnas de 'Título' y 'Resumen', y obtén un análisis de Tono y Tema al instante.")
 
+    # --- Vista 3: Mostrar Resultados ---
     if 'quick_analysis_result' in st.session_state:
         st.success("🎉 Análisis Rápido Completado")
         st.dataframe(st.session_state.quick_analysis_result.head(10))
@@ -814,58 +815,69 @@ def render_quick_analysis_tab():
             type="primary"
         )
         if st.button("🔄 Realizar otro Análisis Rápido"):
-            # Limpiar todo el estado relacionado con el análisis rápido
+            # Limpiar todo el estado relacionado con el análisis rápido para volver al inicio
             for key in ['quick_analysis_result', 'quick_analysis_df', 'quick_file_name']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
         return
 
-    # Usamos un formulario para agrupar las entradas y el botón de envío
-    with st.form("quick_analysis_form"):
-        quick_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"])
+    # --- Vista 1: Carga de archivo ---
+    # Si no hay un DataFrame en la sesión, mostramos solo el cargador de archivos.
+    if 'quick_analysis_df' not in st.session_state:
+        st.markdown("#### Paso 1: Sube tu archivo Excel")
+        quick_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"], label_visibility="collapsed")
         
-        title_col, summary_col = None, None
-        
-        # --- Lógica mejorada con st.session_state ---
         if quick_file:
-            # Si se sube un archivo nuevo, lo leemos y lo guardamos en el estado de la sesión
-            if 'quick_analysis_df' not in st.session_state or st.session_state.get('quick_file_name') != quick_file.name:
-                with st.spinner("Leyendo archivo Excel..."):
-                    st.session_state.quick_analysis_df = pd.read_excel(quick_file)
-                    st.session_state.quick_file_name = quick_file.name
+            with st.spinner("Leyendo archivo..."):
+                st.session_state.quick_analysis_df = pd.read_excel(quick_file)
+                st.session_state.quick_file_name = quick_file.name
+                # Forzamos un re-run para pasar a la siguiente vista
+                st.rerun()
 
-            # Ahora, siempre trabajamos con el DataFrame guardado en el estado
+    # --- Vista 2: Selección de columnas y configuración ---
+    # Si ya hay un DataFrame en la sesión, mostramos el formulario de configuración.
+    else:
+        st.success(f"✅ Archivo **'{st.session_state.quick_file_name}'** cargado correctamente.")
+        st.markdown("#### Paso 2: Configura y ejecuta el análisis")
+        
+        with st.form("quick_analysis_form"):
             df = st.session_state.quick_analysis_df
             columns = df.columns.tolist()
-            st.write("---")
+            
             st.markdown("##### ✏️ Selecciona las columnas a analizar")
             col1, col2 = st.columns(2)
             title_col = col1.selectbox("Columna de **Título**", options=columns, index=0, help="Elige la columna que contiene los titulares de las noticias.")
-            # Asegura que el índice por defecto para el resumen no sea el mismo que el del título si hay más de una columna
             summary_index = 1 if len(columns) > 1 else 0
             summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=summary_index, help="Elige la columna con el texto principal o resumen de la noticia.")
-        
-        st.write("---")
-        st.markdown("##### 🏢 Configuración de Marca")
-        brand_name = st.text_input("**Marca Principal** (para contexto del análisis)", placeholder="Ej: Ecopetrol")
-        brand_aliases_text = st.text_area("**Alias y voceros** (opcional, separados por ;)", placeholder="Ej: Ricardo Roa Barragán", height=80)
-        
-        submitted = st.form_submit_button("🚀 **Analizar Tono y Tema**", use_container_width=True, type="primary")
+            
+            st.write("---")
+            st.markdown("##### 🏢 Configuración de Marca")
+            brand_name = st.text_input("**Marca Principal** (para contexto del análisis)", placeholder="Ej: Ecopetrol")
+            brand_aliases_text = st.text_area("**Alias y voceros** (opcional, separados por ;)", placeholder="Ej: Ricardo Roa Barragán", height=80)
+            
+            submitted = st.form_submit_button("🚀 **Analizar Tono y Tema**", use_container_width=True, type="primary")
 
-        if submitted:
-            if not all([quick_file, title_col, summary_col, brand_name]):
-                st.error("❌ Por favor, sube un archivo, selecciona las columnas y especifica el nombre de la marca.")
-            else:
-                aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
-                # Obtenemos una copia del DataFrame del estado de la sesión para procesarlo
-                df_to_process = st.session_state.quick_analysis_df.copy()
-                
-                with st.spinner("🧠 La IA está trabajando... Esto puede tardar unos minutos."):
-                    result_df = asyncio.run(run_quick_analysis_async(df_to_process, title_col, summary_col, brand_name, aliases))
-                
-                st.session_state.quick_analysis_result = result_df
-                st.rerun()
+            if submitted:
+                if not brand_name:
+                    st.error("❌ Por favor, especifica el nombre de la marca.")
+                else:
+                    aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
+                    df_to_process = st.session_state.quick_analysis_df.copy()
+                    
+                    with st.spinner("🧠 La IA está trabajando... Esto puede tardar unos minutos."):
+                        result_df = asyncio.run(run_quick_analysis_async(df_to_process, title_col, summary_col, brand_name, aliases))
+                    
+                    st.session_state.quick_analysis_result = result_df
+                    st.rerun()
+
+        if st.button("⬅️ Cargar otro archivo"):
+            # Limpiar el estado para volver a la vista de carga
+            for key in ['quick_analysis_df', 'quick_file_name']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
+
 
 # ======================================
 # FIN: Funciones para Análisis Rápido
@@ -925,7 +937,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.9.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.9.2 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
