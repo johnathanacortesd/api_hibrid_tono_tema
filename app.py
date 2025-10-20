@@ -888,93 +888,113 @@ def render_quick_analysis_tab():
 # ======================================
 # INICIO: Funciones para Análisis Hugging Face
 # ======================================
+# --- Nuevas importaciones para BERTopic ---
+from bertopic import BERTopic
+from sentence_transformers import SentenceTransformer
 
 @st.cache_resource
 def get_hf_pipelines():
     """Carga y cachea los modelos de Hugging Face para evitar recargarlos."""
     st.info("Cargando modelos de Hugging Face por primera vez... Esto puede tardar un momento.")
     sentiment_pipe = pipeline("text-classification", model="UMUTeam/roberta-spanish-sentiment-analysis")
-    
-    # MODIFICADO: Cambiamos al modelo SBERT, que es mucho más preciso para la clasificación zero-shot.
-    # Este modelo es superior para entender la similaridad semántica entre el texto y los temas.
-    st.write("Cargando modelo avanzado para análisis de temas (paraphrase-multilingual-mpnet-base-v2)...")
     zeroshot_pipe = pipeline("zero-shot-classification", model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
-    
     return sentiment_pipe, zeroshot_pipe
 
-# NUEVO Y MEJORADO: Análisis de tono híbrido mucho más robusto.
-def analizar_tono_hf_avanzado(sentiment_pipe, textos: List[str]) -> List[str]:
+# NUEVO: Función para generar temas dinámicos usando BERTopic.
+# La cacheamos para que solo se ejecute una vez por conjunto de datos.
+@st.cache_data(ttl=3600)
+def get_dynamic_themes_with_bertopic(texts: List[str]) -> List[str]:
     """
-    Analiza el tono usando un modelo de HF y lo enriquece con un sistema de puntuación
-    basado en reglas de negocio (palabras clave positivas/negativas) para un resultado contextual.
+    Utiliza BERTopic para descubrir temas en los textos y generar una lista de
+    etiquetas de tema de alta calidad.
     """
-    st.write("Iniciando análisis de tono avanzado (Modelo + Reglas)...")
+    st.write("🧠 Ejecutando modelo de Topic Modeling (BERTopic) para descubrir temas...")
     
-    # 1. Obtenemos las predicciones base del modelo de IA
+    # Usamos el mismo modelo de embedding para consistencia
+    embedding_model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+    
+    # Filtramos textos muy cortos que no aportan al modelado de temas
+    docs_to_model = [text for text in texts if len(text.split()) > 10]
+    if len(docs_to_model) < 20: # BERTopic necesita un número mínimo de documentos para funcionar bien
+        st.warning("No hay suficientes noticias con contenido para un modelado de temas dinámico robusto. Usando temas de fallback.")
+        return ["Noticias generales", "Anuncios corporativos", "Resultados", "Alianzas"]
+
+    topic_model = BERTopic(
+        embedding_model=embedding_model,
+        language="multilingual",
+        min_topic_size=3, # Un tema debe estar compuesto por al menos 3 noticias
+        nr_topics=NUM_TEMAS_PRINCIPALES, # Buscamos hasta 25 temas principales
+        verbose=False
+    )
+    
+    with st.spinner("Entrenando el modelo de temas..."):
+        topics, _ = topic_model.fit_transform(docs_to_model)
+
+    # Obtenemos la información de los temas generados
+    topic_info = topic_model.get_topic_info()
+    
+    # Limpiamos los nombres de los temas para usarlos como etiquetas
+    candidate_labels = []
+    for _, row in topic_info.iterrows():
+        # Ignoramos el tema -1, que son los outliers (noticias no agrupadas)
+        if row['Topic'] != -1:
+            # El nombre por defecto es "ID_palabra1_palabra2...". Lo limpiamos.
+            clean_name = " ".join(row['Name'].split('_')[1:]).capitalize()
+            if clean_name:
+                candidate_labels.append(clean_name)
+    
+    if not candidate_labels:
+        st.warning("BERTopic no pudo identificar temas claros. Usando temas de fallback.")
+        return ["Noticias generales", "Anuncios corporativos", "Resultados", "Alianzas"]
+    
+    st.success(f"✅ Se descubrieron {len(candidate_labels)} temas principales en los datos.")
+    return candidate_labels
+
+
+# La función de tono no cambia
+def analizar_tono_hf_avanzado(sentiment_pipe, textos: List[str]) -> List[str]:
+    st.write("Iniciando análisis de tono avanzado (Modelo + Reglas)...")
     try:
         base_results = sentiment_pipe(textos)
     except Exception as e:
         st.error(f"Error en el pipeline de sentimiento de Hugging Face: {e}")
         return ["Error"] * len(textos)
-
     resultados_finales = []
     progress_bar = st.progress(0, text="Calculando tono final con sistema híbrido...")
-
     for i, (texto, res) in enumerate(zip(textos, base_results)):
         texto_lower = unidecode(texto.lower())
-        
-        # 2. Convertimos la predicción del modelo a un puntaje numérico
         tono_base = res['label']
         confianza_base = res['score']
-        
         score = 0
-        if tono_base == 'POSITIVE':
-            score = 1 * confianza_base
-        elif tono_base == 'NEGATIVE':
-            score = -1 * confianza_base
-
-        # 3. Aplicamos un sistema de puntos basado en reglas de negocio
+        if tono_base == 'POSITIVE': score = 1 * confianza_base
+        elif tono_base == 'NEGATIVE': score = -1 * confianza_base
         pos_hits = sum(1 for p in POS_PATTERNS if p.search(texto_lower))
         neg_hits = sum(1 for p in NEG_PATTERNS if p.search(texto_lower))
-        
         score_ajuste = (pos_hits * 0.5) - (neg_hits * 0.5)
-        
         final_score = score + score_ajuste
-
-        # 4. Regla especial de anulación para declaraciones de voceros
         verbos_declarativos_re = re.compile(r'\b(dijo|afirmo|aseguro|segun|indico|explico|anuncio)\b')
         if verbos_declarativos_re.search(texto_lower) and pos_hits > neg_hits:
             final_score += 0.3
-
-        # 5. Determinamos el tono final basado en el puntaje acumulado
         tono_final = "Neutro"
-        if final_score > 0.25:
-            tono_final = "Positivo"
-        elif final_score < -0.25:
-            tono_final = "Negativo"
-            
+        if final_score > 0.25: tono_final = "Positivo"
+        elif final_score < -0.25: tono_final = "Negativo"
         resultados_finales.append(tono_final)
         progress_bar.progress((i + 1) / len(textos), text=f"Calculando tono final: {i+1}/{len(textos)}")
-        
     return resultados_finales
 
-# MODIFICADO: Se añade un parámetro `multi_label=False` en la llamada al pipeline para asegurar que devuelva solo el tema más relevante.
+# MODIFICADO: La lógica de temas dinámicos ahora usa BERTopic.
 def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_method: str, predefined_topics: Optional[List[str]] = None):
-    # Combinar título y resumen
     df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
     textos = df['texto_analisis'].tolist()
     
     sentiment_pipe, zeroshot_pipe = get_hf_pipelines()
 
-    # --- Tono con el sistema híbrido ---
     with st.spinner("🎯 Analizando Tono con sistema híbrido avanzado..."):
         df['Tono IAI'] = analizar_tono_hf_avanzado(sentiment_pipe, textos)
 
-    # --- Tema (Clasificación individual por fila) ---
-    with st.spinner(f"🏷️ Clasificando Temas (fila por fila) con el modelo SBERT..."):
+    with st.spinner(f"🏷️ Preparando análisis de Temas con método '{topic_method}'..."):
         candidate_labels = []
         
-        # PASO 1: Generar la lista de temas candidatos
         if topic_method == "Predefinido":
             if not predefined_topics:
                 st.error("Se seleccionó 'Predefinido' pero no se proporcionaron temas.")
@@ -984,23 +1004,11 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_me
             st.write(f"Usando {len(candidate_labels)} temas predefinidos para la clasificación.")
         
         elif topic_method == "Dinámico":
-            st.write("Generando temas candidatos dinámicamente...")
-            grupos_resumen = agrupar_por_resumen_puro(df[summary_col].fillna('').tolist())
-            
-            for _, idxs in grupos_resumen.items():
-                if not idxs: continue
-                representante_titulo = df.iloc[idxs[0]][title_col]
-                if representante_titulo and isinstance(representante_titulo, str):
-                    tema_candidato = limpiar_tema(" ".join(representante_titulo.split()[:6]))
-                    if tema_candidato not in candidate_labels and len(tema_candidato.split()) > 1:
-                        candidate_labels.append(tema_candidato)
-            
-            candidate_labels = sorted(list(set(candidate_labels)), key=len, reverse=True)[:NUM_TEMAS_PRINCIPALES]
-            if not candidate_labels:
-                candidate_labels = ["Noticias generales", "Anuncios corporativos", "Resultados", "Alianzas"]
-            st.info(f"Temas dinámicos generados para clasificación: {', '.join(candidate_labels)}")
+            # LA LÓGICA ANTERIOR SE REEMPLAZA CON ESTA LLAMADA ÚNICA
+            candidate_labels = get_dynamic_themes_with_bertopic(textos)
+            st.info(f"Temas dinámicos descubiertos: {', '.join(candidate_labels)}")
 
-        # PASO 2: Clasificar CADA texto contra la lista de candidatos
+        # El paso de clasificación individual no cambia, pero ahora usa una lista de temas de mucha mejor calidad.
         temas_finales = []
         progress_bar = st.progress(0, text="Clasificando cada noticia en un tema...")
         for i, texto in enumerate(textos):
@@ -1008,14 +1016,11 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_me
                 temas_finales.append("Sin Contenido" if not texto.strip() else "Sin Temas Candidatos")
             else:
                 try:
-                    # MODIFICADO: Usamos multi_label=False para que la tarea sea de clasificación simple
-                    # y nos devuelva solo el mejor tema con su confianza.
                     res = zeroshot_pipe(texto, candidate_labels=candidate_labels, multi_label=False)
                     temas_finales.append(res['labels'][0])
                 except Exception as e:
                     st.warning(f"Error clasificando la noticia {i+1}: {e}")
                     temas_finales.append("Error de clasificación")
-            
             progress_bar.progress((i + 1) / len(textos), text=f"Clasificando noticia: {i+1}/{len(textos)}")
 
         df['Tema'] = temas_finales
@@ -1023,15 +1028,16 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_me
     df.drop(columns=['texto_analisis'], inplace=True)
     return df
 
-# La función render_hf_analysis_tab no necesita cambios.
+# La función render_hf_analysis_tab se actualiza para explicar el nuevo método.
 def render_hf_analysis_tab():
     st.header("Análisis con Modelos Libres (HF)")
     st.info("Utiliza modelos de Hugging Face para un análisis de Tono y Tema sin costo de API.")
     st.warning(
-        "**Tono Avanzado:** El análisis de Tono utiliza un **sistema híbrido**. Combina un modelo de IA con reglas de negocio (palabras clave positivas/negativas) para un resultado más preciso y contextualizado al español de Colombia.\n\n"
-        "**Tema Preciso:** La clasificación de temas se realiza **noticia por noticia** usando un modelo semántico de última generación (`paraphrase-multilingual-mpnet-base-v2`) para máxima precisión."
+        "**Tono Avanzado:** El análisis de Tono utiliza un **sistema híbrido** que combina IA con reglas de negocio para un resultado más preciso.\n\n"
+        "**Tema Inteligente (BERTopic):** Para la generación **Dinámica**, se usa un modelo avanzado de **Topic Modeling (BERTopic)** que descubre los temas principales directamente de tus noticias, garantizando relevancia y diversidad. Luego, cada noticia se clasifica individualmente en el tema más adecuado."
     )
 
+    # El resto de la función render_hf_analysis_tab no necesita cambios...
     if 'hf_analysis_result' in st.session_state:
         st.success("🎉 Análisis con Modelos Libres Completado")
         st.dataframe(st.session_state.hf_analysis_result.head(10))
@@ -1081,7 +1087,7 @@ def render_hf_analysis_tab():
                 "Elige cómo generar los temas:",
                 ("Dinámico", "Predefinido"),
                 horizontal=True,
-                help="**Dinámico:** El modelo agrupa noticias y genera los temas automáticamente. **Predefinido:** Tú proporcionas una lista de temas y el modelo clasifica cada noticia en uno de ellos."
+                help="**Dinámico:** El modelo descubre los temas automáticamente de tus datos usando BERTopic. **Predefinido:** Tú proporcionas una lista de temas y el modelo clasifica cada noticia en uno de ellos."
             )
 
             predefined_topics_text = ""
@@ -1111,11 +1117,9 @@ def render_hf_analysis_tab():
             for key in ['hf_df', 'hf_file_name', 'hf_analysis_result']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
-
 # ======================================
 # FIN: Funciones para Análisis Hugging Face
 # ======================================
-
 
 def main():
     load_custom_css()
