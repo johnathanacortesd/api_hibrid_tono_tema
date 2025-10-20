@@ -53,7 +53,7 @@ GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capit
 # Lexicos y patrones para analisis de tono
 # ======================================
 STOPWORDS_ES = set(""" a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada """.split())
-POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
+POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", "inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
 NEG_VARIANTS = [r"demanda|denuncia|sanciona|multa|investiga|critica", r"cae|baja|pierde|crisis|quiebra|default", r"fraude|escandalo|irregularidad", r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga", r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora", r"problema(s|tica|tico)?|dificultad(es)?", r"retras(o|a|ar|ado)", r"perdida(s)?|deficit", r"conflict(o|os)?|disputa(s)?", r"rechaz(a|o|ar|ado)", r"negativ(o|a|os|as)", r"preocupa(cion|nte|do)?", r"alarma(nte)?|alerta", r"riesgo(s)?|amenaza(s)?"]
 CRISIS_KEYWORDS = re.compile(r"\b(crisis|emergencia|desastre|deslizamiento|inundaci[oó]n|afectaciones|damnificados|tragedia|zozobra|alerta)\b", re.IGNORECASE)
 RESPONSE_VERBS = re.compile(r"\b(atiend(e|en|iendo)|activ(a|o|ando)|decret(a|o|ando)|responde(r|iendo)|trabaj(a|ando)|lidera(ndo)?|enfrenta(ndo)?|gestiona(ndo)?|declar(o|a|ando)|anunci(a|o|ando))\b", re.IGNORECASE)
@@ -324,17 +324,22 @@ class ClasificadorTonoUltraV2:
             t = unidecode(texto_representante.lower())
             brand_re = _build_brand_regex(self.marca, self.aliases)
             
-            # --- INICIO: NUEVA REGLA DE CITA POSITIVA ---
-            # Si un representante de la marca habla, es positivo.
-            verbos_cita = r"\b(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó))\b"
-            # Busca un verbo, seguido de texto (nombre, cargo), seguido de una preposición/cargo y el nombre de la marca.
-            patron_cita_positiva = re.compile(
-                f"{verbos_cita}.{{10,150}}(?:en|de|para|como|,\\s*gerente|,\\s*director|,\\s*ceo|,\\s*vocero|de\\s+la\\s+compañia)\\s+{brand_re}", 
-                re.IGNORECASE
-            )
-            if brand_re != r"(a^b)" and patron_cita_positiva.search(t):
-                return {"tono": "Positivo", "justificacion": "Declaración de representante"}
-            # --- FIN: NUEVA REGLA ---
+            # --- INICIO: REGLA DE ATRIBUCIÓN POSITIVA MEJORADA ---
+            # Si un representante o experto de la marca es citado o mencionado por su cargo, es positivo.
+            if brand_re != r"(a^b)":
+                cargos_clave = r"(director|directora|gerente|presidente|presidenta|ceo|vocero|experto|experta|jefe|líder|especialista|manager|head of|director de|directora de|gerente de)"
+                verbos_cita = r"(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó)|según)"
+                
+                # Patrón 1: Cargo cerca de la marca (ej. "Directora... de Siemens")
+                patron_cargo = f"(?:{cargos_clave}.{{0,70}}{brand_re}|{brand_re}.{{0,70}}{cargos_clave})"
+                # Patrón 2: Verbo de cita seguido de la marca (ej. "afirmó el vocero de Siemens")
+                patron_verbo = f"{verbos_cita}.{{0,150}}{brand_re}"
+
+                patron_cita_atribucion = re.compile(f"({patron_cargo})|({patron_verbo})", re.IGNORECASE)
+                
+                if patron_cita_atribucion.search(t):
+                    return {"tono": "Positivo", "justificacion": "Declaración de experto/marca"}
+            # --- FIN: REGLA MEJORADA ---
 
             pos_hits = sum(1 for p in POS_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
             neg_hits = sum(1 for p in NEG_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
@@ -853,7 +858,6 @@ def render_quick_analysis_tab():
                     st.error(f"❌ No se pudo leer el archivo. Error: {e}")
                     st.stop()
 
-
     # --- Vista 2: Selección de columnas y configuración ---
     # Si ya hay un DataFrame en la sesión, mostramos el formulario de configuración.
     else:
@@ -955,7 +959,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.0.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
