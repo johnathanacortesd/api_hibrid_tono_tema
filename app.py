@@ -23,6 +23,8 @@ import hashlib
 from typing import List, Dict, Tuple, Optional, Any
 import joblib # Importación para cargar modelos .pkl
 import gc     # Importación para el recolector de basura
+# --- Nuevas importaciones para la pestaña Hugging Face ---
+from transformers import pipeline
 
 # ======================================
 # Configuracion general
@@ -53,8 +55,8 @@ GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capit
 # Lexicos y patrones para analisis de tono
 # ======================================
 STOPWORDS_ES = set(""" a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada """.split())
-POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", "inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
-NEG_VARIANTS = [r"demanda|denuncia|sanciona|multa|investiga|critica", r"cae|baja|pierde|crisis|quiebra|default", r"fraude|escandalo|irregularidad", r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga", r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora", r"problema(s|tica|tico)?|dificultad(es)?", r"retras(o|a|ar|ado)", r"perdida(s)?|deficit", r"conflict(o|os)?|disputa(s)?", r"rechaz(a|o|ar|ado)", r"negativ(o|a|os|as)", r"preocupa(cion|nte|do)?", r"alarma(nte)?|alerta", r"riesgo(s)?|amenaza(s)?"]
+POS_VARIANTS = [ r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)", r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)", r"apertur(a|ar|ara|o|an)", r"estren(a|o|ara|an|ando)", r"habilit(a|o|ara|an|ando)", r"disponible", r"mejor(a|o|an|ando)", r"optimiza|amplia|expande", r"alianz(a|as)|acuerd(o|a|os)|convenio(s)?|memorando(s)?|joint\s+venture|colaboraci[oó]n(es)?|asociaci[oó]n(es)?|partnership(s)?|fusi[oó]n(es)?|integraci[oó]n(es)?", r"crecimi?ento|aument(a|o|an|ando)", r"gananci(a|as)|utilidad(es)?|benefici(o|os)", r"expansion|crece|crecer", r"inversion|invierte|invertir", r"innova(cion|dor|ndo)|moderniza", r"exito(so|sa)?|logr(o|os|a|an|ando)", r"reconoci(miento|do|da)|premi(o|os|ada)", r"lidera(zgo)?|lider", r"consolida|fortalece", r"oportunidad(es)?|potencial", r"solucion(es)?|resuelve", r"eficien(te|cia)", r"calidad|excelencia", r"satisfaccion|complace", r"confianza|credibilidad", r"sostenible|responsable", r"compromiso|apoya|apoyar", r"patrocin(io|a|ador|an|ando)|auspic(ia|io|iador)", r"gana(r|dor|dora|ndo)?|triunf(a|o|ar|ando)", r"destaca(r|do|da|ndo)?", r"supera(r|ndo|cion)?", r"record|hito|milestone", r"avanza(r|do|da|ndo)?", r"benefici(a|o|ando|ar|ando)", r"importante(s)?", r"prioridad", r"bienestar", r"garantizar", r"seguridad", r"atencion", r"expres(o|ó|ando)", r"señala(r|do|ando)", r"ratific(a|o|ando|ar)"]
+NEG_VARIANTS = [r"demanda|denuncia|sanciona|multa|investiga|critica", r"cae|baja|pierde|crisis|quiebra|default", r"fraude|escandalo|irregularidad", r"fall(a|o|os)|interrumpe|suspende|cierra|renuncia|huelga", r"filtracion|ataque|phishing|hackeo|incumple|boicot|queja|reclamo|deteriora", r"problema(s|tica|ico)?|dificultad(es)?", r"retras(o|a|ar|ado)", r"perdida(s)?|deficit", r"conflict(o|os)?|disputa(s)?", r"rechaz(a|o|ar|ado)", r"negativ(o|a|os|as)", r"preocupa(cion|nte|do)?", r"alarma(nte)?|alerta", r"riesgo(s)?|amenaza(s)?"]
 CRISIS_KEYWORDS = re.compile(r"\b(crisis|emergencia|desastre|deslizamiento|inundaci[oó]n|afectaciones|damnificados|tragedia|zozobra|alerta)\b", re.IGNORECASE)
 RESPONSE_VERBS = re.compile(r"\b(atiend(e|en|iendo)|activ(a|o|ando)|decret(a|o|ando)|responde(r|iendo)|trabaj(a|ando)|lidera(ndo)?|enfrenta(ndo)?|gestiona(ndo)?|declar(o|a|ando)|anunci(a|o|ando))\b", re.IGNORECASE)
 ACUERDO_PATTERNS = re.compile(r"\b(acuerdo|alianza|convenio|joint\s+venture|memorando|mou|asociaci[oó]n|colaboraci[oó]n|partnership|fusi[oó]n|integraci[oó]n)\b")
@@ -320,22 +322,19 @@ class ClasificadorTonoUltraV2:
 
     async def _clasificar_grupo_async(self, texto_representante: str, semaphore: asyncio.Semaphore):
         async with semaphore:
-            # Lógica de reglas para decidir si se necesita el LLM
             t = unidecode(texto_representante.lower())
             brand_re = _build_brand_regex(self.marca, self.aliases)
             
             # --- INICIO: REGLA DE ATRIBUCIÓN POSITIVA MEJORADA ---
-            # Si un representante o experto de la marca es citado o mencionado por su cargo, es positivo.
             if brand_re != r"(a^b)":
                 cargos_clave = r"(director|directora|gerente|presidente|presidenta|ceo|vocero|experto|experta|jefe|líder|especialista|manager|head of|director de|directora de|gerente de)"
                 verbos_cita = r"(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó)|según)"
                 
-                # Patrón 1: Cargo cerca de la marca (ej. "Directora... de Siemens")
-                patron_cargo = f"(?:{cargos_clave}.{{0,70}}{brand_re}|{brand_re}.{{0,70}}{cargos_clave})"
-                # Patrón 2: Verbo de cita seguido de la marca (ej. "afirmó el vocero de Siemens")
-                patron_verbo = f"{verbos_cita}.{{0,150}}{brand_re}"
-
-                patron_cita_atribucion = re.compile(f"({patron_cargo})|({patron_verbo})", re.IGNORECASE)
+                patron_cargo = f"({cargos_clave}.{{0,100}}{brand_re}|{brand_re}.{{0,100}}{cargos_clave})"
+                patron_verbo_ida = f"{verbos_cita}.{{0,200}}{brand_re}"
+                patron_verbo_vuelta = f"{brand_re}.{{0,200}}{verbos_cita}"
+                
+                patron_cita_atribucion = re.compile(f"({patron_cargo})|({patron_verbo_ida})|({patron_verbo_vuelta})", re.IGNORECASE)
                 
                 if patron_cita_atribucion.search(t):
                     return {"tono": "Positivo", "justificacion": "Declaración de experto/marca"}
@@ -591,7 +590,7 @@ def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
     norm_keys = [norm_key(h) for h in headers]
     key_map = {nk: nk for nk in norm_keys}
-    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoiai": norm_key("Tono IAI"), "justificaciontono": norm_key("Justificacion Tono"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)"), "region": norm_key("Region") })
+    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoiai": norm_key("Tono IAI"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)"), "region": norm_key("Region") })
     
     rows, split_rows = [], []
     for row in sheet.iter_rows(min_row=2):
@@ -616,7 +615,7 @@ def run_dossier_logic(sheet):
     
     for row in processed_rows:
         if row["is_duplicate"]:
-            row.update({key_map["tonoiai"]: "Duplicada", key_map["tema"]: "Duplicada", key_map["subtema"]: "Duplicada", key_map["justificaciontono"]: "Noticia duplicada."})
+            row.update({key_map["tonoiai"]: "Duplicada", key_map["tema"]: "Duplicada", key_map["subtema"]: "Duplicada"})
     
     return processed_rows, key_map
 
@@ -640,7 +639,7 @@ def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
     out_sheet = out_wb.active
     out_sheet.title = "Resultado"
-    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono IAI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","Justificacion Tono","ID duplicada"]
+    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono IAI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","ID duplicada"]
     numeric_columns = {"ID Noticia", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres", "CPE", "Tier", "Audiencia"}
     out_sheet.append(final_order)
     link_style = NamedStyle(name="Hyperlink_Custom", font=Font(color="0000FF", underline="single"))
@@ -727,7 +726,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             
             df_temp[key_map["tonoiai"]] = [res["tono"] for res in resultados_tono]
-            df_temp[key_map["justificaciontono"]] = [res.get("justificacion", "") for res in resultados_tono]
             
             tonos = df_temp[key_map["tonoiai"]].value_counts()
             positivos, negativos, neutros = tonos.get("Positivo", 0), tonos.get("Negativo", 0), tonos.get("Neutro", 0)
@@ -770,27 +768,17 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         s.update(label="✅ **Paso 5/5:** Proceso completado", state="complete")
 
 # ======================================
-# INICIO: Funciones para Análisis Rápido
+# INICIO: Funciones para Análisis Rápido (OpenAI)
 # ======================================
 
 async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col: str, brand_name: str, aliases: List[str]):
-    """Función asíncrona para ejecutar el análisis de Tono y Tema en un DataFrame."""
-    try:
-        openai.api_key = st.secrets["OPENAI_API_KEY"]
-        openai.aiosession.set(None)
-    except Exception:
-        st.error("❌ Error: OPENAI_API_KEY no encontrado en los Secrets de Streamlit.")
-        st.stop()
-
     df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
     
     with st.status("🎯 **Paso 1/2:** Analizando Tono...", expanded=True) as s:
         p_bar = st.progress(0, "Iniciando análisis de tono...")
         clasif_tono = ClasificadorTonoUltraV2(brand_name, aliases)
-        # Pasamos las columnas originales como 'resumen_puro' y 'titulos_puros' para la agrupación
         resultados_tono = await clasif_tono.procesar_lote_async(df["texto_analisis"], p_bar, df[summary_col].fillna(''), df[title_col].fillna(''))
         df['Tono IAI'] = [res["tono"] for res in resultados_tono]
-        df['Justificacion Tono'] = [res.get("justificacion", "") for res in resultados_tono]
         s.update(label="✅ **Paso 1/2:** Tono Analizado", state="complete")
 
     with st.status("🏷️ **Paso 2/2:** Analizando Tema...", expanded=True) as s:
@@ -808,18 +796,15 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
     return df
 
 def generate_quick_analysis_excel(df: pd.DataFrame) -> bytes:
-    """Genera un archivo Excel a partir de un DataFrame para la descarga."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Analisis_Rapido')
     return output.getvalue()
 
 def render_quick_analysis_tab():
-    """Renderiza la interfaz de usuario para la pestaña de análisis rápido."""
-    st.header("Análisis Rápido de Tono y Tema")
-    st.info("Sube un archivo Excel, selecciona las columnas de 'Título' y 'Resumen', y obtén un análisis de Tono y Tema al instante.")
+    st.header("Análisis Rápido con IA")
+    st.info("Utiliza la API de OpenAI para un análisis avanzado de Tono, Tema y Subtema.")
 
-    # --- Vista 3: Mostrar Resultados ---
     if 'quick_analysis_result' in st.session_state:
         st.success("🎉 Análisis Rápido Completado")
         st.dataframe(st.session_state.quick_analysis_result.head(10))
@@ -828,38 +813,31 @@ def render_quick_analysis_tab():
         st.download_button(
             label="📥 **Descargar Resultados del Análisis Rápido**",
             data=excel_data,
-            file_name=f"Analisis_Rapido_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            file_name=f"Analisis_Rapido_IA_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             type="primary"
         )
         if st.button("🔄 Realizar otro Análisis Rápido"):
-            # Limpiar todo el estado relacionado con el análisis rápido para volver al inicio
             for key in ['quick_analysis_result', 'quick_analysis_df', 'quick_file_name']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
         return
 
-    # --- Vista 1: Carga de archivo ---
-    # Si no hay un DataFrame en la sesión, mostramos solo el cargador de archivos.
     if 'quick_analysis_df' not in st.session_state:
         st.markdown("#### Paso 1: Sube tu archivo Excel")
-        quick_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"], label_visibility="collapsed")
+        quick_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"], label_visibility="collapsed", key="quick_uploader")
         
         if quick_file:
             with st.spinner("Leyendo archivo..."):
                 try:
                     st.session_state.quick_analysis_df = pd.read_excel(quick_file)
                     st.session_state.quick_file_name = quick_file.name
-                    # Forzamos un re-run para pasar a la siguiente vista
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ No se pudo leer el archivo. Error: {e}")
                     st.stop()
-
-    # --- Vista 2: Selección de columnas y configuración ---
-    # Si ya hay un DataFrame en la sesión, mostramos el formulario de configuración.
     else:
         st.success(f"✅ Archivo **'{st.session_state.quick_file_name}'** cargado correctamente.")
         st.markdown("#### Paso 2: Configura y ejecuta el análisis")
@@ -870,21 +848,28 @@ def render_quick_analysis_tab():
             
             st.markdown("##### ✏️ Selecciona las columnas a analizar")
             col1, col2 = st.columns(2)
-            title_col = col1.selectbox("Columna de **Título**", options=columns, index=0, help="Elige la columna que contiene los titulares de las noticias.")
+            title_col = col1.selectbox("Columna de **Título**", options=columns, index=0)
             summary_index = 1 if len(columns) > 1 else 0
-            summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=summary_index, help="Elige la columna con el texto principal o resumen de la noticia.")
+            summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=summary_index)
             
             st.write("---")
             st.markdown("##### 🏢 Configuración de Marca")
-            brand_name = st.text_input("**Marca Principal** (para contexto del análisis)", placeholder="Ej: Ecopetrol")
-            brand_aliases_text = st.text_area("**Alias y voceros** (opcional, separados por ;)", placeholder="Ej: Ricardo Roa Barragán", height=80)
+            brand_name = st.text_input("**Marca Principal**", placeholder="Ej: Siemens")
+            brand_aliases_text = st.text_area("**Alias y voceros**", placeholder="Ej: Siemens Healthineers", height=80)
             
-            submitted = st.form_submit_button("🚀 **Analizar Tono y Tema**", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("🚀 **Analizar con IA**", use_container_width=True, type="primary")
 
             if submitted:
                 if not brand_name:
                     st.error("❌ Por favor, especifica el nombre de la marca.")
                 else:
+                    try:
+                        openai.api_key = st.secrets["OPENAI_API_KEY"]
+                        openai.aiosession.set(None)
+                    except Exception:
+                        st.error("❌ Error: OPENAI_API_KEY no encontrado en los Secrets de Streamlit.")
+                        st.stop()
+
                     aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
                     df_to_process = st.session_state.quick_analysis_df.copy()
                     
@@ -895,15 +880,153 @@ def render_quick_analysis_tab():
                     st.rerun()
 
         if st.button("⬅️ Cargar otro archivo"):
-            # Limpiar el estado para volver a la vista de carga
-            for key in ['quick_analysis_df', 'quick_file_name']:
+            for key in ['quick_analysis_df', 'quick_file_name', 'quick_analysis_result']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
 
 # ======================================
-# FIN: Funciones para Análisis Rápido
+# INICIO: Funciones para Análisis Hugging Face
 # ======================================
+
+@st.cache_resource
+def get_hf_pipelines():
+    """Carga y cachea los modelos de Hugging Face para evitar recargarlos."""
+    st.info("Cargando modelos de Hugging Face por primera vez... Esto puede tardar un momento.")
+    sentiment_pipe = pipeline("text-classification", model="UMUTeam/roberta-spanish-sentiment-analysis")
+    zeroshot_pipe = pipeline("zero-shot-classification", model="DAMO-NLP-SG/zero-shot-classify-SSTuning-XLM-R")
+    return sentiment_pipe, zeroshot_pipe
+
+def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str):
+    df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
+    textos = df['texto_analisis'].tolist()
+    
+    sentiment_pipe, zeroshot_pipe = get_hf_pipelines()
+
+    # --- Tono ---
+    with st.spinner("🎯 Analizando Tono con modelo `roberta-spanish-sentiment`..."):
+        sentiment_results = sentiment_pipe(textos)
+        tono_map = {'POSITIVE': 'Positivo', 'NEGATIVE': 'Negativo', 'NEUTRAL': 'Neutro'}
+        df['Tono IAI'] = [tono_map.get(res['label'], 'Neutro') for res in sentiment_results]
+
+    # --- Tema (Zero-Shot Dinámico) ---
+    with st.spinner("🏷️ Generando y clasificando Temas con modelo `zero-shot`..."):
+        # 1. Agrupar noticias
+        titulos = df[title_col].fillna('').tolist()
+        resumenes = df[summary_col].fillna('').tolist()
+        grupos_titulo = agrupar_por_titulo_similar(titulos)
+        grupos_resumen = agrupar_por_resumen_puro(resumenes)
+
+        class DSU:
+            def __init__(self, n): self.p = list(range(n))
+            def find(self, i):
+                if self.p[i] == i: return i
+                self.p[i] = self.find(self.p[i]); return self.p[i]
+            def union(self, i, j): self.p[self.find(j)] = self.find(i)
+        
+        dsu = DSU(len(df))
+        for g in [grupos_titulo, grupos_resumen]:
+            for _, idxs in g.items():
+                for j in idxs[1:]: dsu.union(idxs[0], j)
+        
+        comp = defaultdict(list)
+        for i in range(len(df)): comp[dsu.find(i)].append(i)
+
+        # 2. Generar temas candidatos de los grupos
+        candidate_labels = []
+        mapa_idx_a_tema = {}
+        for cid, idxs in comp.items():
+            # Heurística simple para nombrar el tema del grupo
+            representante_titulo = titulos[idxs[0]]
+            tema_candidato = " ".join(string_norm_label(representante_titulo).split()[:5])
+            if tema_candidato:
+                tema_candidato = tema_candidato.capitalize()
+                candidate_labels.append(tema_candidato)
+                for i in idxs:
+                    mapa_idx_a_tema[i] = tema_candidato
+        
+        candidate_labels = sorted(list(set(candidate_labels)))
+        if not candidate_labels: # Fallback si no hay temas
+            candidate_labels = ["Noticias generales"]
+
+        # 3. Clasificar cada texto con los temas candidatos
+        temas_finales = []
+        progress_bar = st.progress(0, text="Clasificando temas...")
+        for i, texto in enumerate(textos):
+            if i in mapa_idx_a_tema: # Si ya pertenece a un grupo, usar ese tema
+                temas_finales.append(mapa_idx_a_tema[i])
+            else: # Si es una noticia única, clasificarla
+                res = zeroshot_pipe(texto, candidate_labels=candidate_labels)
+                temas_finales.append(res['labels'][0])
+            progress_bar.progress((i + 1) / len(textos), text=f"Clasificando temas: {i+1}/{len(textos)}")
+
+        df['Tema'] = temas_finales
+
+    df.drop(columns=['texto_analisis'], inplace=True)
+    return df
+
+def render_hf_analysis_tab():
+    st.header("Análisis con Modelos Libres (HF)")
+    st.info("Utiliza modelos de Hugging Face para un análisis de Tono y Tema sin costo de API.")
+    st.warning("**Nota:** El análisis de Tema es dinámico. Primero agrupa noticias similares para generar posibles temas y luego clasifica cada noticia en la categoría más apropiada.")
+
+    if 'hf_analysis_result' in st.session_state:
+        st.success("🎉 Análisis con Modelos Libres Completado")
+        st.dataframe(st.session_state.hf_analysis_result.head(10))
+        excel_data = generate_quick_analysis_excel(st.session_state.hf_analysis_result)
+        st.download_button(
+            label="📥 **Descargar Resultados del Análisis HF**",
+            data=excel_data,
+            file_name=f"Analisis_HF_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary"
+        )
+        if st.button("🔄 Realizar otro Análisis HF"):
+            for key in ['hf_analysis_result', 'hf_df', 'hf_file_name']:
+                if key in st.session_state: del st.session_state[key]
+            st.rerun()
+        return
+
+    if 'hf_df' not in st.session_state:
+        st.markdown("#### Paso 1: Sube tu archivo Excel")
+        hf_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"], label_visibility="collapsed", key="hf_uploader")
+        if hf_file:
+            with st.spinner("Leyendo archivo..."):
+                try:
+                    st.session_state.hf_df = pd.read_excel(hf_file)
+                    st.session_state.hf_file_name = hf_file.name
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ No se pudo leer el archivo. Error: {e}")
+    else:
+        st.success(f"✅ Archivo **'{st.session_state.hf_file_name}'** cargado correctamente.")
+        st.markdown("#### Paso 2: Selecciona columnas y ejecuta")
+        
+        with st.form("hf_analysis_form"):
+            df = st.session_state.hf_df
+            columns = df.columns.tolist()
+            col1, col2 = st.columns(2)
+            title_col = col1.selectbox("Columna de **Título**", options=columns, index=0, key="hf_title")
+            summary_index = 1 if len(columns) > 1 else 0
+            summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=summary_index, key="hf_summary")
+            
+            submitted = st.form_submit_button("🚀 **Analizar con Modelos Libres**", use_container_width=True, type="primary")
+
+            if submitted:
+                df_to_process = st.session_state.hf_df.copy()
+                result_df = run_hf_analysis(df_to_process, title_col, summary_col)
+                st.session_state.hf_analysis_result = result_df
+                st.rerun()
+
+        if st.button("⬅️ Cargar otro archivo HF"):
+            for key in ['hf_df', 'hf_file_name', 'hf_analysis_result']:
+                if key in st.session_state: del st.session_state[key]
+            st.rerun()
+# ======================================
+# FIN: Funciones para Análisis Hugging Face
+# ======================================
+
 
 def main():
     load_custom_css()
@@ -912,7 +1035,7 @@ def main():
     st.markdown('<div class="main-header">📰 Sistema de Análisis de Noticias con IA</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Análisis personalizable de Tono y Tema/Subtema</div>', unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["Análisis Completo", "Análisis Rápido (Tono y Tema)"])
+    tab1, tab2, tab3 = st.tabs(["Análisis Completo", "Análisis Rápido (IA)", "Análisis con Modelos Libres (HF)"])
 
     with tab1:
         if not st.session_state.get("processing_complete", False):
@@ -958,8 +1081,11 @@ def main():
 
     with tab2:
         render_quick_analysis_tab()
+
+    with tab3:
+        render_hf_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.0.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
