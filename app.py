@@ -320,8 +320,22 @@ class ClasificadorTonoUltraV2:
 
     async def _clasificar_grupo_async(self, texto_representante: str, semaphore: asyncio.Semaphore):
         async with semaphore:
+            # Lógica de reglas para decidir si se necesita el LLM
             t = unidecode(texto_representante.lower())
             brand_re = _build_brand_regex(self.marca, self.aliases)
+            
+            # --- INICIO: NUEVA REGLA DE CITA POSITIVA ---
+            # Si un representante de la marca habla, es positivo.
+            verbos_cita = r"\b(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó))\b"
+            # Busca un verbo, seguido de texto (nombre, cargo), seguido de una preposición/cargo y el nombre de la marca.
+            patron_cita_positiva = re.compile(
+                f"{verbos_cita}.{{10,150}}(?:en|de|para|como|,\\s*gerente|,\\s*director|,\\s*ceo|,\\s*vocero|de\\s+la\\s+compañia)\\s+{brand_re}", 
+                re.IGNORECASE
+            )
+            if brand_re != r"(a^b)" and patron_cita_positiva.search(t):
+                return {"tono": "Positivo", "justificacion": "Declaración de representante"}
+            # --- FIN: NUEVA REGLA ---
+
             pos_hits = sum(1 for p in POS_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
             neg_hits = sum(1 for p in NEG_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
             is_crisis_response = bool(CRISIS_KEYWORDS.search(t)) and bool(re.search(rf"{brand_re}.{{0,50}}{RESPONSE_VERBS.pattern}", t, re.IGNORECASE))
@@ -572,7 +586,7 @@ def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
     norm_keys = [norm_key(h) for h in headers]
     key_map = {nk: nk for nk in norm_keys}
-    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoai": norm_key("Tono AI"), "justificaciontono": norm_key("Justificacion Tono"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)"), "region": norm_key("Region") })
+    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoiai": norm_key("Tono IAI"), "justificaciontono": norm_key("Justificacion Tono"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)"), "region": norm_key("Region") })
     
     rows, split_rows = [], []
     for row in sheet.iter_rows(min_row=2):
@@ -597,7 +611,7 @@ def run_dossier_logic(sheet):
     
     for row in processed_rows:
         if row["is_duplicate"]:
-            row.update({key_map["tonoai"]: "Duplicada", key_map["tema"]: "Duplicada", key_map["subtema"]: "Duplicada", key_map["justificaciontono"]: "Noticia duplicada."})
+            row.update({key_map["tonoiai"]: "Duplicada", key_map["tema"]: "Duplicada", key_map["subtema"]: "Duplicada", key_map["justificaciontono"]: "Noticia duplicada."})
     
     return processed_rows, key_map
 
@@ -621,7 +635,7 @@ def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
     out_sheet = out_wb.active
     out_sheet.title = "Resultado"
-    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono AI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","Justificacion Tono","ID duplicada"]
+    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono IAI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","Justificacion Tono","ID duplicada"]
     numeric_columns = {"ID Noticia", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres", "CPE", "Tier", "Audiencia"}
     out_sheet.append(final_order)
     link_style = NamedStyle(name="Hyperlink_Custom", font=Font(color="0000FF", underline="single"))
@@ -707,10 +721,10 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             
-            df_temp[key_map["tonoai"]] = [res["tono"] for res in resultados_tono]
+            df_temp[key_map["tonoiai"]] = [res["tono"] for res in resultados_tono]
             df_temp[key_map["justificaciontono"]] = [res.get("justificacion", "") for res in resultados_tono]
             
-            tonos = df_temp[key_map["tonoai"]].value_counts()
+            tonos = df_temp[key_map["tonoiai"]].value_counts()
             positivos, negativos, neutros = tonos.get("Positivo", 0), tonos.get("Negativo", 0), tonos.get("Neutro", 0)
             st.markdown(f'**Resultados de Tono:** <span style="color:green;">{positivos} Positivos</span>, <span style="color:red;">{negativos} Negativos</span>, <span style="color:gray;">{neutros} Neutros</span>', unsafe_allow_html=True)
             s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
@@ -770,7 +784,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
         clasif_tono = ClasificadorTonoUltraV2(brand_name, aliases)
         # Pasamos las columnas originales como 'resumen_puro' y 'titulos_puros' para la agrupación
         resultados_tono = await clasif_tono.procesar_lote_async(df["texto_analisis"], p_bar, df[summary_col].fillna(''), df[title_col].fillna(''))
-        df['Tono AI'] = [res["tono"] for res in resultados_tono]
+        df['Tono IAI'] = [res["tono"] for res in resultados_tono]
         df['Justificacion Tono'] = [res.get("justificacion", "") for res in resultados_tono]
         s.update(label="✅ **Paso 1/2:** Tono Analizado", state="complete")
 
@@ -830,10 +844,15 @@ def render_quick_analysis_tab():
         
         if quick_file:
             with st.spinner("Leyendo archivo..."):
-                st.session_state.quick_analysis_df = pd.read_excel(quick_file)
-                st.session_state.quick_file_name = quick_file.name
-                # Forzamos un re-run para pasar a la siguiente vista
-                st.rerun()
+                try:
+                    st.session_state.quick_analysis_df = pd.read_excel(quick_file)
+                    st.session_state.quick_file_name = quick_file.name
+                    # Forzamos un re-run para pasar a la siguiente vista
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ No se pudo leer el archivo. Error: {e}")
+                    st.stop()
+
 
     # --- Vista 2: Selección de columnas y configuración ---
     # Si ya hay un DataFrame en la sesión, mostramos el formulario de configuración.
@@ -877,7 +896,6 @@ def render_quick_analysis_tab():
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
-
 
 # ======================================
 # FIN: Funciones para Análisis Rápido
@@ -937,7 +955,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.9.2 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
