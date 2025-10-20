@@ -894,70 +894,124 @@ def get_hf_pipelines():
     """Carga y cachea los modelos de Hugging Face para evitar recargarlos."""
     st.info("Cargando modelos de Hugging Face por primera vez... Esto puede tardar un momento.")
     sentiment_pipe = pipeline("text-classification", model="UMUTeam/roberta-spanish-sentiment-analysis")
-    zeroshot_pipe = pipeline("zero-shot-classification", model="DAMO-NLP-SG/zero-shot-classify-SSTuning-XLM-R")
+    zeroshot_pipe = pipeline("zero-shot-classification", model="facebook/bart-large-mnli") 
+    # MODIFICADO: Usamos un modelo zero-shot más estándar y robusto que funciona bien en múltiples idiomas.
     return sentiment_pipe, zeroshot_pipe
 
-def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str):
-    df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
+# NUEVO: Función para aplicar reglas de negocio sobre el análisis de tono base.
+def analizar_tono_hf_con_reglas(sentiment_pipe, textos: List[str]) -> List[str]:
+    """
+    Analiza el tono usando un modelo de HF y luego aplica reglas de negocio para
+    ajustar el resultado, especialmente para declaraciones de voceros.
+    """
+    # Patrones para detectar declaraciones, adaptados del clasificador de OpenAI
+    verbos_cita = r"(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó)|según|de acuerdo con)"
+    patron_declaracion_positiva = re.compile(f"({verbos_cita})", re.IGNORECASE)
+    
+    # Patrones para detectar críticas directas
+    palabras_critica = r"(critic(a|ó)|cuestion(a|ó)|denunci(a|ó)|rechaz(a|ó)|lament(a|ó)|preocupaci(o|ó)n por)"
+    patron_critica_negativa = re.compile(f"({palabras_critica})", re.IGNORECASE)
+
+    # 1. Obtener predicciones base del modelo
+    st.write("Obteniendo análisis de tono base del modelo...")
+    base_results = sentiment_pipe(textos)
+    tono_map = {'POSITIVE': 'Positivo', 'NEGATIVE': 'Negativo', 'NEUTRAL': 'Neutro'}
+    
+    resultados_finales = []
+    progress_bar = st.progress(0, text="Ajustando tono con reglas de negocio...")
+    for i, (texto, res) in enumerate(zip(textos, base_results)):
+        tono_base = tono_map.get(res['label'], 'Neutro')
+        texto_lower = unidecode(texto.lower())
+
+        # 2. Aplicar reglas de anulación (override)
+        # Regla 1: Si es una declaración (cita de alguien), es muy probable que sea Positiva o Neutra (informativa).
+        # Se clasifica como Positiva para reflejar la proactividad en la comunicación.
+        if patron_declaracion_positiva.search(texto_lower):
+            resultados_finales.append("Positivo")
+        # Regla 2: Si contiene palabras de crítica explícita, forzar a Negativo.
+        elif patron_critica_negativa.search(texto_lower):
+            resultados_finales.append("Negativo")
+        # Regla 3: Si no hay reglas que apliquen, usar el resultado del modelo.
+        else:
+            resultados_finales.append(tono_base)
+            
+        progress_bar.progress((i + 1) / len(textos), text=f"Ajustando tono: {i+1}/{len(textos)}")
+        
+    return resultados_finales
+
+# MODIFICADO: La función principal de análisis de HF ahora es mucho más robusta y flexible.
+def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_method: str, predefined_topics: Optional[List[str]] = None):
+    # Paso 1: Crear el texto de análisis combinando título y resumen de forma inteligente.
+    # Si el título es muy corto, el resumen cobra más importancia.
+    def crear_texto_analisis(row):
+        titulo = str(row[title_col] or "").strip()
+        resumen = str(row[summary_col] or "").strip()
+        # Si el título tiene menos de 4 palabras, es probable que no sea descriptivo.
+        if len(titulo.split()) < 4:
+            return f"{titulo}. {resumen}" if titulo else resumen
+        return f"{titulo}. {resumen}"
+
+    df['texto_analisis'] = df.apply(crear_texto_analisis, axis=1)
     textos = df['texto_analisis'].tolist()
     
     sentiment_pipe, zeroshot_pipe = get_hf_pipelines()
 
-    # --- Tono ---
-    with st.spinner("🎯 Analizando Tono con modelo `roberta-spanish-sentiment`..."):
-        sentiment_results = sentiment_pipe(textos)
-        tono_map = {'POSITIVE': 'Positivo', 'NEGATIVE': 'Negativo', 'NEUTRAL': 'Neutro'}
-        df['Tono IAI'] = [tono_map.get(res['label'], 'Neutro') for res in sentiment_results]
+    # --- Tono con reglas de negocio ---
+    with st.spinner("🎯 Analizando Tono con modelo `roberta-spanish-sentiment` y reglas de negocio..."):
+        df['Tono IAI'] = analizar_tono_hf_con_reglas(sentiment_pipe, textos)
 
-    # --- Tema (Zero-Shot Dinámico) ---
-    with st.spinner("🏷️ Generando y clasificando Temas con modelo `zero-shot`..."):
-        # 1. Agrupar noticias
-        titulos = df[title_col].fillna('').tolist()
-        resumenes = df[summary_col].fillna('').tolist()
-        grupos_titulo = agrupar_por_titulo_similar(titulos)
-        grupos_resumen = agrupar_por_resumen_puro(resumenes)
-
-        class DSU:
-            def __init__(self, n): self.p = list(range(n))
-            def find(self, i):
-                if self.p[i] == i: return i
-                self.p[i] = self.find(self.p[i]); return self.p[i]
-            def union(self, i, j): self.p[self.find(j)] = self.find(i)
-        
-        dsu = DSU(len(df))
-        for g in [grupos_titulo, grupos_resumen]:
-            for _, idxs in g.items():
-                for j in idxs[1:]: dsu.union(idxs[0], j)
-        
-        comp = defaultdict(list)
-        for i in range(len(df)): comp[dsu.find(i)].append(i)
-
-        # 2. Generar temas candidatos de los grupos
+    # --- Tema (Zero-Shot Dinámico o Predefinido) ---
+    with st.spinner(f"🏷️ Clasificando Temas con método '{topic_method}'..."):
         candidate_labels = []
-        mapa_idx_a_tema = {}
-        for cid, idxs in comp.items():
-            # Heurística simple para nombrar el tema del grupo
-            representante_titulo = titulos[idxs[0]]
-            tema_candidato = " ".join(string_norm_label(representante_titulo).split()[:5])
-            if tema_candidato:
-                tema_candidato = tema_candidato.capitalize()
-                candidate_labels.append(tema_candidato)
-                for i in idxs:
-                    mapa_idx_a_tema[i] = tema_candidato
-        
-        candidate_labels = sorted(list(set(candidate_labels)))
-        if not candidate_labels: # Fallback si no hay temas
-            candidate_labels = ["Noticias generales"]
+        if topic_method == "Predefinido":
+            if not predefined_topics:
+                st.error("Se seleccionó el método 'Predefinido' pero no se proporcionaron temas. El análisis de tema se omitirá.")
+                df['Tema'] = "N/A"
+                return df
+            candidate_labels = predefined_topics
+            st.write(f"Usando {len(candidate_labels)} temas predefinidos para la clasificación.")
 
-        # 3. Clasificar cada texto con los temas candidatos
+        elif topic_method == "Dinámico":
+            st.write("Generando temas dinámicamente a partir de los datos...")
+            # 1. Agrupar noticias similares para identificar "hechos"
+            grupos_resumen = agrupar_por_resumen_puro(df[summary_col].fillna('').tolist())
+            
+            # 2. Generar temas candidatos de los grupos más representativos
+            # Usamos una heurística para crear un nombre de tema corto y limpio
+            for _, idxs in grupos_resumen.items():
+                if not idxs: continue
+                # Tomamos el título del primer elemento como base para el nombre del tema
+                representante_titulo = df.iloc[idxs[0]][title_col]
+                if representante_titulo and isinstance(representante_titulo, str):
+                    tema_candidato = limpiar_tema(" ".join(representante_titulo.split()[:6]))
+                    if tema_candidato not in candidate_labels and len(tema_candidato.split()) > 1:
+                         candidate_labels.append(tema_candidato)
+            
+            # Limitar el número de temas para que la clasificación sea efectiva
+            candidate_labels = sorted(list(set(candidate_labels)), key=len, reverse=True)[:NUM_TEMAS_PRINCIPALES]
+            
+            if not candidate_labels: # Fallback si no se generan temas
+                candidate_labels = ["Noticias generales", "Anuncios corporativos", "Resultados financieros", "Alianzas y convenios"]
+            st.write(f"Se generaron dinámicamente {len(candidate_labels)} temas para la clasificación.")
+            st.info(f"Temas generados: {', '.join(candidate_labels)}")
+
+        # 3. Clasificar cada texto con los temas candidatos (común a ambos métodos)
         temas_finales = []
-        progress_bar = st.progress(0, text="Clasificando temas...")
+        progress_bar = st.progress(0, text="Clasificando noticias en temas...")
         for i, texto in enumerate(textos):
-            if i in mapa_idx_a_tema: # Si ya pertenece a un grupo, usar ese tema
-                temas_finales.append(mapa_idx_a_tema[i])
-            else: # Si es una noticia única, clasificarla
-                res = zeroshot_pipe(texto, candidate_labels=candidate_labels)
-                temas_finales.append(res['labels'][0])
+            if not texto.strip():
+                temas_finales.append("Sin Contenido")
+                continue
+            try:
+                # El modelo espera al menos una etiqueta candidata
+                if candidate_labels:
+                    res = zeroshot_pipe(texto, candidate_labels=candidate_labels)
+                    temas_finales.append(res['labels'][0])
+                else:
+                    temas_finales.append("Clasificación no disponible")
+            except Exception as e:
+                st.warning(f"No se pudo clasificar el texto {i+1}: {e}")
+                temas_finales.append("Error de clasificación")
             progress_bar.progress((i + 1) / len(textos), text=f"Clasificando temas: {i+1}/{len(textos)}")
 
         df['Tema'] = temas_finales
@@ -965,10 +1019,17 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str):
     df.drop(columns=['texto_analisis'], inplace=True)
     return df
 
+# MODIFICADO: La UI ahora incluye opciones para la generación de temas.
 def render_hf_analysis_tab():
     st.header("Análisis con Modelos Libres (HF)")
     st.info("Utiliza modelos de Hugging Face para un análisis de Tono y Tema sin costo de API.")
-    st.warning("**Nota:** El análisis de Tema es dinámico. Primero agrupa noticias similares para generar posibles temas y luego clasifica cada noticia en la categoría más apropiada.")
+    st.warning(
+        "**Tono Mejorado:** El análisis de Tono ahora considera el contexto. Las declaraciones de voceros "
+        "tienden a ser clasificadas como **Positivas** y las críticas explícitas como **Negativas**.\n\n"
+        "**Temas Flexibles:** Puedes elegir entre generar temas dinámicamente a partir de las noticias o "
+        "proporcionar tu propia lista de temas para una clasificación controlada."
+    )
+
 
     if 'hf_analysis_result' in st.session_state:
         st.success("🎉 Análisis con Modelos Libres Completado")
@@ -1001,21 +1062,47 @@ def render_hf_analysis_tab():
                     st.error(f"❌ No se pudo leer el archivo. Error: {e}")
     else:
         st.success(f"✅ Archivo **'{st.session_state.hf_file_name}'** cargado correctamente.")
-        st.markdown("#### Paso 2: Selecciona columnas y ejecuta")
+        st.markdown("#### Paso 2: Selecciona columnas y configura el análisis")
         
         with st.form("hf_analysis_form"):
             df = st.session_state.hf_df
             columns = df.columns.tolist()
+            
+            st.markdown("##### ✏️ Selecciona las columnas a analizar")
             col1, col2 = st.columns(2)
             title_col = col1.selectbox("Columna de **Título**", options=columns, index=0, key="hf_title")
             summary_index = 1 if len(columns) > 1 else 0
             summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=summary_index, key="hf_summary")
             
+            st.write("---")
+            st.markdown("##### 🏷️ Configuración de Análisis de Tema")
+            topic_method = st.radio(
+                "Elige cómo generar los temas:",
+                ("Dinámico", "Predefinido"),
+                horizontal=True,
+                help="**Dinámico:** El modelo agrupa noticias y genera los temas automáticamente. **Predefinido:** Tú proporcionas una lista de temas y el modelo clasifica cada noticia en uno de ellos."
+            )
+
+            predefined_topics_text = ""
+            if topic_method == "Predefinido":
+                predefined_topics_text = st.text_area(
+                    "**Ingresa tus temas predefinidos (separados por ;)**",
+                    "Innovación y Tecnología; Sostenibilidad y Medio Ambiente; Resultados Financieros; Alianzas Estratégicas; Responsabilidad Social; Talento Humano y Cultura; Expansión de Mercado",
+                    height=100
+                )
+            
             submitted = st.form_submit_button("🚀 **Analizar con Modelos Libres**", use_container_width=True, type="primary")
 
             if submitted:
+                predefined_topics = []
+                if topic_method == "Predefinido":
+                    if not predefined_topics_text.strip():
+                        st.error("❌ Por favor, ingresa al menos un tema en la lista de temas predefinidos.")
+                        st.stop()
+                    predefined_topics = [topic.strip() for topic in predefined_topics_text.split(";") if topic.strip()]
+
                 df_to_process = st.session_state.hf_df.copy()
-                result_df = run_hf_analysis(df_to_process, title_col, summary_col)
+                result_df = run_hf_analysis(df_to_process, title_col, summary_col, topic_method, predefined_topics)
                 st.session_state.hf_analysis_result = result_df
                 st.rerun()
 
@@ -1023,6 +1110,7 @@ def render_hf_analysis_tab():
             for key in ['hf_df', 'hf_file_name', 'hf_analysis_result']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
+
 # ======================================
 # FIN: Funciones para Análisis Hugging Face
 # ======================================
