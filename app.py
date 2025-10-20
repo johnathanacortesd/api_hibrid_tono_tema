@@ -46,7 +46,7 @@ WINDOW = 80
 NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
 
 # Lista de ciudades y gentilicios colombianos para filtrar
-CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
+CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarc"a", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
 GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capitalino", "capitalinos", "capitalina", "capitalinas", "antioqueño", "antioqueños", "antioqueña", "antioqueñas", "paisa", "paisas", "medellense", "medellenses", "caleño", "caleños", "caleña", "caleñas", "valluno", "vallunos", "valluna", "vallunas", "vallecaucano", "vallecaucanos", "barranquillero", "barranquilleros", "cartagenero", "cartageneros", "costeño", "costeños", "costeña", "costeñas", "cucuteño", "cucuteños", "bumangués", "santandereano", "santandereanos", "boyacense", "boyacenses", "tolimense", "tolimenses", "huilense", "huilenses", "nariñense", "nariñenses", "pastuso", "pastusas", "cordobés", "cordobeses", "cauca", "caucano", "caucanos", "chocoano", "chocoanos", "casanareño", "casanareños", "caqueteño", "caqueteños", "guajiro", "guajiros", "llanero", "llaneros", "amazonense", "amazonenses", "colombiano", "colombianos", "colombiana", "colombianas"}
 
 # ======================================
@@ -320,7 +320,6 @@ class ClasificadorTonoUltraV2:
 
     async def _clasificar_grupo_async(self, texto_representante: str, semaphore: asyncio.Semaphore):
         async with semaphore:
-            # Lógica de reglas para decidir si se necesita el LLM
             t = unidecode(texto_representante.lower())
             brand_re = _build_brand_regex(self.marca, self.aliases)
             pos_hits = sum(1 for p in POS_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
@@ -582,7 +581,6 @@ def run_dossier_logic(sheet):
     
     for r_cells in rows:
         base = {k: extract_link(v) if k in [key_map["link_nota"], key_map["link_streaming"]] else v.value for k, v in r_cells.items()}
-        # Normalizar Tipo de Medio aquí
         if key_map.get("tipodemedio") in base:
             base[key_map["tipodemedio"]] = normalizar_tipo_medio(base.get(key_map["tipodemedio"]))
 
@@ -618,7 +616,6 @@ def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
         if not has_url(ln) and has_url(ls): 
             row[ln_key] = ls
         row[ls_key] = {"value": "", "url": None}
-
 
 def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
@@ -817,28 +814,37 @@ def render_quick_analysis_tab():
             type="primary"
         )
         if st.button("🔄 Realizar otro Análisis Rápido"):
-            del st.session_state.quick_analysis_result
-            if 'quick_analysis_df' in st.session_state:
-                del st.session_state.quick_analysis_df
+            # Limpiar todo el estado relacionado con el análisis rápido
+            for key in ['quick_analysis_result', 'quick_analysis_df', 'quick_file_name']:
+                if key in st.session_state:
+                    del st.session_state[key]
             st.rerun()
         return
 
+    # Usamos un formulario para agrupar las entradas y el botón de envío
     with st.form("quick_analysis_form"):
         quick_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"])
         
         title_col, summary_col = None, None
+        
+        # --- Lógica mejorada con st.session_state ---
         if quick_file:
+            # Si se sube un archivo nuevo, lo leemos y lo guardamos en el estado de la sesión
             if 'quick_analysis_df' not in st.session_state or st.session_state.get('quick_file_name') != quick_file.name:
-                st.session_state.quick_analysis_df = pd.read_excel(quick_file)
-                st.session_state.quick_file_name = quick_file.name
+                with st.spinner("Leyendo archivo Excel..."):
+                    st.session_state.quick_analysis_df = pd.read_excel(quick_file)
+                    st.session_state.quick_file_name = quick_file.name
 
+            # Ahora, siempre trabajamos con el DataFrame guardado en el estado
             df = st.session_state.quick_analysis_df
             columns = df.columns.tolist()
             st.write("---")
             st.markdown("##### ✏️ Selecciona las columnas a analizar")
             col1, col2 = st.columns(2)
-            title_col = col1.selectbox("Columna de **Título**", options=columns, index=0)
-            summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=1 if len(columns)>1 else 0)
+            title_col = col1.selectbox("Columna de **Título**", options=columns, index=0, help="Elige la columna que contiene los titulares de las noticias.")
+            # Asegura que el índice por defecto para el resumen no sea el mismo que el del título si hay más de una columna
+            summary_index = 1 if len(columns) > 1 else 0
+            summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=summary_index, help="Elige la columna con el texto principal o resumen de la noticia.")
         
         st.write("---")
         st.markdown("##### 🏢 Configuración de Marca")
@@ -852,6 +858,7 @@ def render_quick_analysis_tab():
                 st.error("❌ Por favor, sube un archivo, selecciona las columnas y especifica el nombre de la marca.")
             else:
                 aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
+                # Obtenemos una copia del DataFrame del estado de la sesión para procesarlo
                 df_to_process = st.session_state.quick_analysis_df.copy()
                 
                 with st.spinner("🧠 La IA está trabajando... Esto puede tardar unos minutos."):
@@ -863,7 +870,6 @@ def render_quick_analysis_tab():
 # ======================================
 # FIN: Funciones para Análisis Rápido
 # ======================================
-
 
 def main():
     load_custom_css()
@@ -919,7 +925,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.8 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v4.9 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
