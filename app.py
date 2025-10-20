@@ -894,7 +894,12 @@ def get_hf_pipelines():
     """Carga y cachea los modelos de Hugging Face para evitar recargarlos."""
     st.info("Cargando modelos de Hugging Face por primera vez... Esto puede tardar un momento.")
     sentiment_pipe = pipeline("text-classification", model="UMUTeam/roberta-spanish-sentiment-analysis")
-    zeroshot_pipe = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+    
+    # MODIFICADO: Cambiamos al modelo SBERT, que es mucho más preciso para la clasificación zero-shot.
+    # Este modelo es superior para entender la similaridad semántica entre el texto y los temas.
+    st.write("Cargando modelo avanzado para análisis de temas (paraphrase-multilingual-mpnet-base-v2)...")
+    zeroshot_pipe = pipeline("zero-shot-classification", model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+    
     return sentiment_pipe, zeroshot_pipe
 
 # NUEVO Y MEJORADO: Análisis de tono híbrido mucho más robusto.
@@ -919,7 +924,6 @@ def analizar_tono_hf_avanzado(sentiment_pipe, textos: List[str]) -> List[str]:
         texto_lower = unidecode(texto.lower())
         
         # 2. Convertimos la predicción del modelo a un puntaje numérico
-        # Esto nos da un punto de partida antes de aplicar las reglas.
         tono_base = res['label']
         confianza_base = res['score']
         
@@ -930,27 +934,23 @@ def analizar_tono_hf_avanzado(sentiment_pipe, textos: List[str]) -> List[str]:
             score = -1 * confianza_base
 
         # 3. Aplicamos un sistema de puntos basado en reglas de negocio
-        # Reutilizamos los patrones del clasificador de OpenAI para consistencia
         pos_hits = sum(1 for p in POS_PATTERNS if p.search(texto_lower))
         neg_hits = sum(1 for p in NEG_PATTERNS if p.search(texto_lower))
         
-        # Cada "hit" positivo o negativo ajusta el puntaje.
-        # Damos más peso a las reglas que a la confianza base del modelo.
         score_ajuste = (pos_hits * 0.5) - (neg_hits * 0.5)
         
         final_score = score + score_ajuste
 
         # 4. Regla especial de anulación para declaraciones de voceros
-        # Si hay muchos indicadores positivos y es una declaración, es muy probable que sea positivo.
         verbos_declarativos_re = re.compile(r'\b(dijo|afirmo|aseguro|segun|indico|explico|anuncio)\b')
         if verbos_declarativos_re.search(texto_lower) and pos_hits > neg_hits:
-            final_score += 0.3 # Le damos un empujón hacia positivo
+            final_score += 0.3
 
         # 5. Determinamos el tono final basado en el puntaje acumulado
         tono_final = "Neutro"
-        if final_score > 0.25: # Umbral para ser considerado positivo
+        if final_score > 0.25:
             tono_final = "Positivo"
-        elif final_score < -0.25: # Umbral para ser considerado negativo
+        elif final_score < -0.25:
             tono_final = "Negativo"
             
         resultados_finales.append(tono_final)
@@ -958,23 +958,23 @@ def analizar_tono_hf_avanzado(sentiment_pipe, textos: List[str]) -> List[str]:
         
     return resultados_finales
 
-# MODIFICADO Y CORREGIDO: La lógica de temas ahora clasifica cada fila individualmente.
+# MODIFICADO: Se añade un parámetro `multi_label=False` en la llamada al pipeline para asegurar que devuelva solo el tema más relevante.
 def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_method: str, predefined_topics: Optional[List[str]] = None):
-    # Combinar título y resumen para tener el texto completo
+    # Combinar título y resumen
     df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
     textos = df['texto_analisis'].tolist()
     
     sentiment_pipe, zeroshot_pipe = get_hf_pipelines()
 
-    # --- Tono con el nuevo sistema híbrido ---
+    # --- Tono con el sistema híbrido ---
     with st.spinner("🎯 Analizando Tono con sistema híbrido avanzado..."):
         df['Tono IAI'] = analizar_tono_hf_avanzado(sentiment_pipe, textos)
 
     # --- Tema (Clasificación individual por fila) ---
-    with st.spinner(f"🏷️ Clasificando Temas (fila por fila) con método '{topic_method}'..."):
+    with st.spinner(f"🏷️ Clasificando Temas (fila por fila) con el modelo SBERT..."):
         candidate_labels = []
         
-        # PASO 1: Generar la lista de temas candidatos (solo una vez)
+        # PASO 1: Generar la lista de temas candidatos
         if topic_method == "Predefinido":
             if not predefined_topics:
                 st.error("Se seleccionó 'Predefinido' pero no se proporcionaron temas.")
@@ -985,7 +985,6 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_me
         
         elif topic_method == "Dinámico":
             st.write("Generando temas candidatos dinámicamente...")
-            # Usamos la agrupación solo para encontrar ideas de temas
             grupos_resumen = agrupar_por_resumen_puro(df[summary_col].fillna('').tolist())
             
             for _, idxs in grupos_resumen.items():
@@ -1002,7 +1001,6 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_me
             st.info(f"Temas dinámicos generados para clasificación: {', '.join(candidate_labels)}")
 
         # PASO 2: Clasificar CADA texto contra la lista de candidatos
-        # ESTA ES LA CORRECCIÓN CLAVE: El bucle itera sobre cada texto.
         temas_finales = []
         progress_bar = st.progress(0, text="Clasificando cada noticia en un tema...")
         for i, texto in enumerate(textos):
@@ -1010,11 +1008,12 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_me
                 temas_finales.append("Sin Contenido" if not texto.strip() else "Sin Temas Candidatos")
             else:
                 try:
-                    # Clasificamos el texto actual contra TODAS las etiquetas candidatas
-                    res = zeroshot_pipe(texto, candidate_labels=candidate_labels)
-                    # Y asignamos la etiqueta con la puntuación más alta
+                    # MODIFICADO: Usamos multi_label=False para que la tarea sea de clasificación simple
+                    # y nos devuelva solo el mejor tema con su confianza.
+                    res = zeroshot_pipe(texto, candidate_labels=candidate_labels, multi_label=False)
                     temas_finales.append(res['labels'][0])
-                except Exception:
+                except Exception as e:
+                    st.warning(f"Error clasificando la noticia {i+1}: {e}")
                     temas_finales.append("Error de clasificación")
             
             progress_bar.progress((i + 1) / len(textos), text=f"Clasificando noticia: {i+1}/{len(textos)}")
@@ -1024,13 +1023,13 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_me
     df.drop(columns=['texto_analisis'], inplace=True)
     return df
 
-# MODIFICADO: Se actualiza el texto de ayuda para reflejar las mejoras
+# La función render_hf_analysis_tab no necesita cambios.
 def render_hf_analysis_tab():
     st.header("Análisis con Modelos Libres (HF)")
     st.info("Utiliza modelos de Hugging Face para un análisis de Tono y Tema sin costo de API.")
     st.warning(
         "**Tono Avanzado:** El análisis de Tono utiliza un **sistema híbrido**. Combina un modelo de IA con reglas de negocio (palabras clave positivas/negativas) para un resultado más preciso y contextualizado al español de Colombia.\n\n"
-        "**Tema Preciso:** La clasificación de temas se realiza **noticia por noticia**. Puedes elegir entre generar temas dinámicamente o proporcionar tu propia lista para una clasificación controlada y coherente."
+        "**Tema Preciso:** La clasificación de temas se realiza **noticia por noticia** usando un modelo semántico de última generación (`paraphrase-multilingual-mpnet-base-v2`) para máxima precisión."
     )
 
     if 'hf_analysis_result' in st.session_state:
