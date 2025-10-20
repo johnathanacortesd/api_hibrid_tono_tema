@@ -65,7 +65,7 @@ EXPRESIONES_NEUTRAS = ["informa","presenta informe","segun informe","segun estud
 VERBOS_DECLARATIVOS = ["dijo","afirmo","aseguro","segun","indico","apunto","declaro","explico","estimo", "segun el informe","segun la entidad","segun analistas","de acuerdo con"]
 MARCADORES_CONDICIONALES = ["podria","estaria","habria","al parecer","posible","trascendio","se rumora","seria","serian"]
 POS_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARIANTS]
-NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_PATTERNS]
+NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS]
 
 # ======================================
 # Estilos CSS
@@ -517,7 +517,7 @@ def analizar_temas_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[
         return [str(p) for p in predicciones]
     except Exception as e:
         st.error(f"❌ Error al procesar el `pipeline_tema.pkl`: {e}")
-        st.warning("Asegúrese que el pipeline es un objeto Scikit-learn que implemente `.predict()`.")
+        st.warning("Asegúrese que el pipeline es un objeto Scikit-learn que implementa `.predict()`.")
         return None
 
 # ======================================
@@ -798,7 +798,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
 def generate_quick_analysis_excel(df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Analisis')
+        df.to_excel(writer, index=False, sheet_name='Analisis_Rapido')
     return output.getvalue()
 
 def render_quick_analysis_tab():
@@ -855,7 +855,7 @@ def render_quick_analysis_tab():
             st.write("---")
             st.markdown("##### 🏢 Configuración de Marca")
             brand_name = st.text_input("**Marca Principal**", placeholder="Ej: Siemens")
-            brand_aliases_text = st.text_area("**Alias y voceros** (separados por ;)", placeholder="Ej: Siemens Healthineers", height=80)
+            brand_aliases_text = st.text_area("**Alias y voceros**", placeholder="Ej: Siemens Healthineers", height=80)
             
             submitted = st.form_submit_button("🚀 **Analizar con IA**", use_container_width=True, type="primary")
 
@@ -892,9 +892,9 @@ def render_quick_analysis_tab():
 @st.cache_resource
 def get_hf_pipelines():
     """Carga y cachea los modelos de Hugging Face para evitar recargarlos."""
-    with st.spinner("Cargando modelos de Hugging Face por primera vez... Esto puede tardar un momento."):
-        sentiment_pipe = pipeline("text-classification", model="UMUTeam/roberta-spanish-sentiment-analysis")
-        zeroshot_pipe = pipeline("zero-shot-classification", model="DAMO-NLP-SG/zero-shot-classify-SSTuning-XLM-R")
+    st.info("Cargando modelos de Hugging Face por primera vez... Esto puede tardar un momento.")
+    sentiment_pipe = pipeline("text-classification", model="UMUTeam/roberta-spanish-sentiment-analysis")
+    zeroshot_pipe = pipeline("zero-shot-classification", model="DAMO-NLP-SG/zero-shot-classify-SSTuning-XLM-R")
     return sentiment_pipe, zeroshot_pipe
 
 def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str):
@@ -904,68 +904,63 @@ def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str):
     sentiment_pipe, zeroshot_pipe = get_hf_pipelines()
 
     # --- Tono ---
-    p_bar = st.progress(0, text="🎯 Analizando Tono con modelo `roberta-spanish-sentiment`...")
-    sentiment_results = []
-    # Procesar en lotes para mostrar progreso
-    batch_size = 16
-    for i in range(0, len(textos), batch_size):
-        batch = textos[i:i+batch_size]
-        sentiment_results.extend(sentiment_pipe(batch))
-        p_bar.progress(min(1.0, (i + batch_size) / len(textos)), text=f"Analizando Tono: {min(i+batch_size, len(textos))}/{len(textos)}")
-    
-    tono_map = {'POSITIVE': 'Positivo', 'NEGATIVE': 'Negativo', 'NEUTRAL': 'Neutro'}
-    df['Tono IAI'] = [tono_map.get(res['label'], 'Neutro') for res in sentiment_results]
+    with st.spinner("🎯 Analizando Tono con modelo `roberta-spanish-sentiment`..."):
+        sentiment_results = sentiment_pipe(textos)
+        tono_map = {'POSITIVE': 'Positivo', 'NEGATIVE': 'Negativo', 'NEUTRAL': 'Neutro'}
+        df['Tono IAI'] = [tono_map.get(res['label'], 'Neutro') for res in sentiment_results]
 
     # --- Tema (Zero-Shot Dinámico) ---
-    p_bar.progress(0, text="🏷️ Generando y clasificando Temas con modelo `zero-shot`...")
-    # 1. Agrupar noticias
-    titulos = df[title_col].fillna('').tolist()
-    resumenes = df[summary_col].fillna('').tolist()
-    grupos_titulo = agrupar_por_titulo_similar(titulos)
-    
-    class DSU:
-        def __init__(self, n): self.p = list(range(n))
-        def find(self, i):
-            if self.p[i] == i: return i
-            self.p[i] = self.find(self.p[i]); return self.p[i]
-        def union(self, i, j): self.p[self.find(j)] = self.find(i)
-    
-    dsu = DSU(len(df))
-    for _, idxs in grupos_titulo.items():
-        for j in idxs[1:]: dsu.union(idxs[0], j)
-    
-    comp = defaultdict(list)
-    for i in range(len(df)): comp[dsu.find(i)].append(i)
+    with st.spinner("🏷️ Generando y clasificando Temas con modelo `zero-shot`..."):
+        # 1. Agrupar noticias
+        titulos = df[title_col].fillna('').tolist()
+        resumenes = df[summary_col].fillna('').tolist()
+        grupos_titulo = agrupar_por_titulo_similar(titulos)
+        grupos_resumen = agrupar_por_resumen_puro(resumenes)
 
-    # 2. Generar temas candidatos de los grupos
-    candidate_labels = []
-    mapa_idx_a_tema = {}
-    for _, idxs in comp.items():
-        representante_titulo = clean_title_for_output(titulos[idxs[0]])
-        tema_candidato = " ".join(string_norm_label(representante_titulo).split()[:5])
-        if tema_candidato and len(tema_candidato.split()) > 1:
-            tema_candidato = tema_candidato.capitalize()
-            candidate_labels.append(tema_candidato)
-            for i in idxs: mapa_idx_a_tema[i] = tema_candidato
-    
-    candidate_labels = sorted(list(set(candidate_labels)))
-    if not candidate_labels: candidate_labels = ["Noticias generales"]
+        class DSU:
+            def __init__(self, n): self.p = list(range(n))
+            def find(self, i):
+                if self.p[i] == i: return i
+                self.p[i] = self.find(self.p[i]); return self.p[i]
+            def union(self, i, j): self.p[self.find(j)] = self.find(i)
+        
+        dsu = DSU(len(df))
+        for g in [grupos_titulo, grupos_resumen]:
+            for _, idxs in g.items():
+                for j in idxs[1:]: dsu.union(idxs[0], j)
+        
+        comp = defaultdict(list)
+        for i in range(len(df)): comp[dsu.find(i)].append(i)
 
-    # 3. Clasificar cada texto con los temas candidatos
-    temas_finales = [None] * len(textos)
-    indices_a_clasificar = [i for i, texto in enumerate(textos) if i not in mapa_idx_a_tema]
-    textos_a_clasificar = [textos[i] for i in indices_a_clasificar]
+        # 2. Generar temas candidatos de los grupos
+        candidate_labels = []
+        mapa_idx_a_tema = {}
+        for cid, idxs in comp.items():
+            # Heurística simple para nombrar el tema del grupo
+            representante_titulo = titulos[idxs[0]]
+            tema_candidato = " ".join(string_norm_label(representante_titulo).split()[:5])
+            if tema_candidato:
+                tema_candidato = tema_candidato.capitalize()
+                candidate_labels.append(tema_candidato)
+                for i in idxs:
+                    mapa_idx_a_tema[i] = tema_candidato
+        
+        candidate_labels = sorted(list(set(candidate_labels)))
+        if not candidate_labels: # Fallback si no hay temas
+            candidate_labels = ["Noticias generales"]
 
-    if textos_a_clasificar:
-        zeroshot_results = zeroshot_pipe(textos_a_clasificar, candidate_labels=candidate_labels, batch_size=8)
-        for i, res in enumerate(zeroshot_results):
-            original_idx = indices_a_clasificar[i]
-            temas_finales[original_idx] = res['labels'][0]
+        # 3. Clasificar cada texto con los temas candidatos
+        temas_finales = []
+        progress_bar = st.progress(0, text="Clasificando temas...")
+        for i, texto in enumerate(textos):
+            if i in mapa_idx_a_tema: # Si ya pertenece a un grupo, usar ese tema
+                temas_finales.append(mapa_idx_a_tema[i])
+            else: # Si es una noticia única, clasificarla
+                res = zeroshot_pipe(texto, candidate_labels=candidate_labels)
+                temas_finales.append(res['labels'][0])
+            progress_bar.progress((i + 1) / len(textos), text=f"Clasificando temas: {i+1}/{len(textos)}")
 
-    for i, tema in mapa_idx_a_tema.items():
-        temas_finales[i] = tema
-
-    df['Tema'] = temas_finales
+        df['Tema'] = temas_finales
 
     df.drop(columns=['texto_analisis'], inplace=True)
     return df
@@ -1024,14 +1019,14 @@ def render_hf_analysis_tab():
                 st.session_state.hf_analysis_result = result_df
                 st.rerun()
 
-        if st.button("⬅️ Cargar otro archivo (HF)"):
+        if st.button("⬅️ Cargar otro archivo HF"):
             for key in ['hf_df', 'hf_file_name', 'hf_analysis_result']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
-
 # ======================================
 # FIN: Funciones para Análisis Hugging Face
 # ======================================
+
 
 def main():
     load_custom_css()
