@@ -54,7 +54,7 @@ Este es el flujo de trabajo principal, diseñado para procesar un conjunto de ar
 
 #### **Generación de Informe Excel:**
 
-- Produce un archivo `.xlsx` final con todas las columnas originales y las nuevas columnas de análisis (**Tono IAI**, **Tema**, **Subtema**).
+- Produce un archivo `.xlsx` final con todas las columnas originales y las nuevas columnas de análisis (**Tono IA**, **Tema**, **Subtema**).
 - La columna `Justificacion Tono` ha sido eliminada para un informe más limpio.
 - Limpia títulos, corrige texto de resúmenes y preserva los hipervínculos.
 
@@ -66,7 +66,7 @@ Una herramienta flexible para analizar rápidamente cualquier archivo Excel que 
 
 - **Interfaz Guiada en 2 Pasos:** El usuario primero sube un archivo. Una vez cargado, la aplicación muestra las columnas del archivo y le pide que seleccione cuáles corresponden al **Título** y al **Resumen**.
 - **Análisis Focalizado:** Aplica los mismos potentes módulos de **Análisis de Tono Híbrido** y **Generación Dinámica de Temas/Subtemas** del flujo completo.
-- **Resultado Inmediato:** Añade las columnas `Tono IAI`, `Tema` y `Subtema` al archivo original y permite la descarga inmediata del resultado.
+- **Resultado Inmediato:** Añade las columnas `Tono IA`, `Tema` y `Subtema` al archivo original y permite la descarga inmediata del resultado.
 
 ---
 
