@@ -23,8 +23,6 @@ import hashlib
 from typing import List, Dict, Tuple, Optional, Any
 import joblib # Importación para cargar modelos .pkl
 import gc     # Importación para el recolector de basura
-# --- Nuevas importaciones para la pestaña Hugging Face ---
-from transformers import pipeline
 
 # ======================================
 # Configuracion general
@@ -65,7 +63,7 @@ EXPRESIONES_NEUTRAS = ["informa","presenta informe","segun informe","segun estud
 VERBOS_DECLARATIVOS = ["dijo","afirmo","aseguro","segun","indico","apunto","declaro","explico","estimo", "segun el informe","segun la entidad","segun analistas","de acuerdo con"]
 MARCADORES_CONDICIONALES = ["podria","estaria","habria","al parecer","posible","trascendio","se rumora","seria","serian"]
 POS_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARIANTS]
-NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS]
+NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_PATTERNS]
 
 # ======================================
 # Estilos CSS
@@ -300,25 +298,25 @@ class ClasificadorTonoUltraV2:
         aliases_str = ", ".join(self.aliases) if self.aliases else "ninguno"
         prompt = (
             f"Analice ÚNICAMENTE el sentimiento hacia la marca '{self.marca}' (y sus alias: {aliases_str}), NO el sentimiento general del texto. "
-            "Determine el 'tono' (Positivo, Negativo, Neutro) y una 'justificacion' breve (máx 6 palabras) en formato JSON. "
+            "Determine el 'tono' (Positivo, Negativo, Neutro). "
             "Considere positivo: acuerdos, premios, o la respuesta proactiva a una crisis. "
             f"Texto: {texto[:MAX_TOKENS_PROMPT_TXT]}\n"
-            'Responda en JSON: {"tono":"...", "justificacion":"..."}'
+            'Responda en JSON: {"tono":"..."}'
         )
         try:
             resp = await acall_with_retries(
                 openai.ChatCompletion.acreate,
                 model=OPENAI_MODEL_CLASIFICACION,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=60,
+                max_tokens=20,
                 temperature=0.0,
                 response_format={"type": "json_object"}
             )
             data = json.loads(resp.choices[0].message.content.strip())
             tono = str(data.get("tono", "Neutro")).title()
-            return {"tono": tono if tono in ["Positivo","Negativo","Neutro"] else "Neutro", "justificacion": data.get("justificacion", "Análisis LLM")}
+            return {"tono": tono if tono in ["Positivo","Negativo","Neutro"] else "Neutro"}
         except Exception:
-            return {"tono": "Neutro", "justificacion": "Fallo de refuerzo LLM"}
+            return {"tono": "Neutro"}
 
     async def _clasificar_grupo_async(self, texto_representante: str, semaphore: asyncio.Semaphore):
         async with semaphore:
@@ -327,26 +325,25 @@ class ClasificadorTonoUltraV2:
             
             # --- INICIO: REGLA DE ATRIBUCIÓN POSITIVA MEJORADA ---
             if brand_re != r"(a^b)":
-                cargos_clave = r"(director|directora|gerente|presidente|presidenta|ceo|vocero|experto|experta|jefe|líder|especialista|manager|head of|director de|directora de|gerente de)"
+                cargos = r"(director|directora|gerente|presidente|presidenta|ceo|vocero|experto|experta|jefe|líder|especialista|manager|head of|director de|directora de|gerente de)"
                 verbos_cita = r"(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó)|según)"
                 
-                patron_cargo = f"({cargos_clave}.{{0,100}}{brand_re}|{brand_re}.{{0,100}}{cargos_clave})"
-                patron_verbo_ida = f"{verbos_cita}.{{0,200}}{brand_re}"
-                patron_verbo_vuelta = f"{brand_re}.{{0,200}}{verbos_cita}"
+                patron_cargo = f"({cargos}.{{0,100}}{brand_re}|{brand_re}.{{0,100}}{cargos})"
+                patron_verbo = f"({verbos_cita}.{{0,200}}{brand_re}|{brand_re}.{{0,200}}{verbos_cita})"
                 
-                patron_cita_atribucion = re.compile(f"({patron_cargo})|({patron_verbo_ida})|({patron_verbo_vuelta})", re.IGNORECASE)
+                patron_atribucion_positiva = re.compile(f"{patron_cargo}|{patron_verbo}", re.IGNORECASE)
                 
-                if patron_cita_atribucion.search(t):
-                    return {"tono": "Positivo", "justificacion": "Declaración de experto/marca"}
+                if patron_atribucion_positiva.search(t):
+                    return {"tono": "Positivo"}
             # --- FIN: REGLA MEJORADA ---
 
             pos_hits = sum(1 for p in POS_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
             neg_hits = sum(1 for p in NEG_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
             is_crisis_response = bool(CRISIS_KEYWORDS.search(t)) and bool(re.search(rf"{brand_re}.{{0,50}}{RESPONSE_VERBS.pattern}", t, re.IGNORECASE))
             
-            if is_crisis_response: return {"tono": "Positivo", "justificacion": "Respuesta activa a crisis"}
-            if pos_hits > neg_hits and pos_hits > 0: return {"tono": "Positivo", "justificacion": "Acción favorable"}
-            if neg_hits > pos_hits and neg_hits > 0: return {"tono": "Negativo", "justificacion": "Hecho adverso"}
+            if is_crisis_response: return {"tono": "Positivo"}
+            if pos_hits > neg_hits and pos_hits > 0: return {"tono": "Positivo"}
+            if neg_hits > pos_hits and neg_hits > 0: return {"tono": "Negativo"}
             
             return await self._llm_refuerzo(texto_representante)
 
@@ -379,7 +376,7 @@ class ClasificadorTonoUltraV2:
         
         resultados_finales = [None] * n
         for cid, idxs in comp.items():
-            r = resultados_por_grupo.get(cid, {"tono": "Neutro", "justificacion": "Sin datos"})
+            r = resultados_por_grupo.get(cid, {"tono": "Neutro"})
             for i in idxs: resultados_finales[i] = r
         
         progress_bar.progress(1.0, text="✅ Análisis de tono completado")
@@ -390,7 +387,7 @@ def analizar_tono_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[L
         pipeline = joblib.load(pkl_file)
         predicciones = pipeline.predict(textos)
         TONO_MAP = {1: "Positivo", "1": "Positivo", 0: "Neutro", "0": "Neutro", -1: "Negativo", "-1": "Negativo"}
-        resultados = [{"tono": TONO_MAP.get(p, str(p).title()), "justificacion": "Análisis con modelo PKL"} for p in predicciones]
+        resultados = [{"tono": TONO_MAP.get(p, str(p).title())} for p in predicciones]
         return resultados
     except Exception as e:
         st.error(f"❌ Error al procesar `pipeline_sentimiento.pkl`: {e}")
@@ -798,7 +795,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
 def generate_quick_analysis_excel(df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Analisis_Rapido')
+        df.to_excel(writer, index=False, sheet_name='Analisis')
     return output.getvalue()
 
 def render_quick_analysis_tab():
@@ -855,7 +852,7 @@ def render_quick_analysis_tab():
             st.write("---")
             st.markdown("##### 🏢 Configuración de Marca")
             brand_name = st.text_input("**Marca Principal**", placeholder="Ej: Siemens")
-            brand_aliases_text = st.text_area("**Alias y voceros**", placeholder="Ej: Siemens Healthineers", height=80)
+            brand_aliases_text = st.text_area("**Alias y voceros** (separados por ;)", placeholder="Ej: Siemens Healthineers", height=80)
             
             submitted = st.form_submit_button("🚀 **Analizar con IA**", use_container_width=True, type="primary")
 
@@ -885,242 +882,6 @@ def render_quick_analysis_tab():
                     del st.session_state[key]
             st.rerun()
 
-# ======================================
-# INICIO: Funciones para Análisis Hugging Face
-# ======================================
-# --- Nuevas importaciones para BERTopic ---
-from bertopic import BERTopic
-from sentence_transformers import SentenceTransformer
-
-@st.cache_resource
-def get_hf_pipelines():
-    """Carga y cachea los modelos de Hugging Face para evitar recargarlos."""
-    st.info("Cargando modelos de Hugging Face por primera vez... Esto puede tardar un momento.")
-    sentiment_pipe = pipeline("text-classification", model="UMUTeam/roberta-spanish-sentiment-analysis")
-    zeroshot_pipe = pipeline("zero-shot-classification", model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
-    return sentiment_pipe, zeroshot_pipe
-
-# NUEVO: Función para generar temas dinámicos usando BERTopic.
-# La cacheamos para que solo se ejecute una vez por conjunto de datos.
-@st.cache_data(ttl=3600)
-def get_dynamic_themes_with_bertopic(texts: List[str]) -> List[str]:
-    """
-    Utiliza BERTopic para descubrir temas en los textos y generar una lista de
-    etiquetas de tema de alta calidad.
-    """
-    st.write("🧠 Ejecutando modelo de Topic Modeling (BERTopic) para descubrir temas...")
-    
-    # Usamos el mismo modelo de embedding para consistencia
-    embedding_model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
-    
-    # Filtramos textos muy cortos que no aportan al modelado de temas
-    docs_to_model = [text for text in texts if len(text.split()) > 10]
-    if len(docs_to_model) < 20: # BERTopic necesita un número mínimo de documentos para funcionar bien
-        st.warning("No hay suficientes noticias con contenido para un modelado de temas dinámico robusto. Usando temas de fallback.")
-        return ["Noticias generales", "Anuncios corporativos", "Resultados", "Alianzas"]
-
-    topic_model = BERTopic(
-        embedding_model=embedding_model,
-        language="multilingual",
-        min_topic_size=3, # Un tema debe estar compuesto por al menos 3 noticias
-        nr_topics=NUM_TEMAS_PRINCIPALES, # Buscamos hasta 25 temas principales
-        verbose=False
-    )
-    
-    with st.spinner("Entrenando el modelo de temas..."):
-        topics, _ = topic_model.fit_transform(docs_to_model)
-
-    # Obtenemos la información de los temas generados
-    topic_info = topic_model.get_topic_info()
-    
-    # Limpiamos los nombres de los temas para usarlos como etiquetas
-    candidate_labels = []
-    for _, row in topic_info.iterrows():
-        # Ignoramos el tema -1, que son los outliers (noticias no agrupadas)
-        if row['Topic'] != -1:
-            # El nombre por defecto es "ID_palabra1_palabra2...". Lo limpiamos.
-            clean_name = " ".join(row['Name'].split('_')[1:]).capitalize()
-            if clean_name:
-                candidate_labels.append(clean_name)
-    
-    if not candidate_labels:
-        st.warning("BERTopic no pudo identificar temas claros. Usando temas de fallback.")
-        return ["Noticias generales", "Anuncios corporativos", "Resultados", "Alianzas"]
-    
-    st.success(f"✅ Se descubrieron {len(candidate_labels)} temas principales en los datos.")
-    return candidate_labels
-
-
-# La función de tono no cambia
-def analizar_tono_hf_avanzado(sentiment_pipe, textos: List[str]) -> List[str]:
-    st.write("Iniciando análisis de tono avanzado (Modelo + Reglas)...")
-    try:
-        base_results = sentiment_pipe(textos)
-    except Exception as e:
-        st.error(f"Error en el pipeline de sentimiento de Hugging Face: {e}")
-        return ["Error"] * len(textos)
-    resultados_finales = []
-    progress_bar = st.progress(0, text="Calculando tono final con sistema híbrido...")
-    for i, (texto, res) in enumerate(zip(textos, base_results)):
-        texto_lower = unidecode(texto.lower())
-        tono_base = res['label']
-        confianza_base = res['score']
-        score = 0
-        if tono_base == 'POSITIVE': score = 1 * confianza_base
-        elif tono_base == 'NEGATIVE': score = -1 * confianza_base
-        pos_hits = sum(1 for p in POS_PATTERNS if p.search(texto_lower))
-        neg_hits = sum(1 for p in NEG_PATTERNS if p.search(texto_lower))
-        score_ajuste = (pos_hits * 0.5) - (neg_hits * 0.5)
-        final_score = score + score_ajuste
-        verbos_declarativos_re = re.compile(r'\b(dijo|afirmo|aseguro|segun|indico|explico|anuncio)\b')
-        if verbos_declarativos_re.search(texto_lower) and pos_hits > neg_hits:
-            final_score += 0.3
-        tono_final = "Neutro"
-        if final_score > 0.25: tono_final = "Positivo"
-        elif final_score < -0.25: tono_final = "Negativo"
-        resultados_finales.append(tono_final)
-        progress_bar.progress((i + 1) / len(textos), text=f"Calculando tono final: {i+1}/{len(textos)}")
-    return resultados_finales
-
-# MODIFICADO: La lógica de temas dinámicos ahora usa BERTopic.
-def run_hf_analysis(df: pd.DataFrame, title_col: str, summary_col: str, topic_method: str, predefined_topics: Optional[List[str]] = None):
-    df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
-    textos = df['texto_analisis'].tolist()
-    
-    sentiment_pipe, zeroshot_pipe = get_hf_pipelines()
-
-    with st.spinner("🎯 Analizando Tono con sistema híbrido avanzado..."):
-        df['Tono IAI'] = analizar_tono_hf_avanzado(sentiment_pipe, textos)
-
-    with st.spinner(f"🏷️ Preparando análisis de Temas con método '{topic_method}'..."):
-        candidate_labels = []
-        
-        if topic_method == "Predefinido":
-            if not predefined_topics:
-                st.error("Se seleccionó 'Predefinido' pero no se proporcionaron temas.")
-                df['Tema'] = "N/A"
-                return df
-            candidate_labels = predefined_topics
-            st.write(f"Usando {len(candidate_labels)} temas predefinidos para la clasificación.")
-        
-        elif topic_method == "Dinámico":
-            # LA LÓGICA ANTERIOR SE REEMPLAZA CON ESTA LLAMADA ÚNICA
-            candidate_labels = get_dynamic_themes_with_bertopic(textos)
-            st.info(f"Temas dinámicos descubiertos: {', '.join(candidate_labels)}")
-
-        # El paso de clasificación individual no cambia, pero ahora usa una lista de temas de mucha mejor calidad.
-        temas_finales = []
-        progress_bar = st.progress(0, text="Clasificando cada noticia en un tema...")
-        for i, texto in enumerate(textos):
-            if not texto.strip() or not candidate_labels:
-                temas_finales.append("Sin Contenido" if not texto.strip() else "Sin Temas Candidatos")
-            else:
-                try:
-                    res = zeroshot_pipe(texto, candidate_labels=candidate_labels, multi_label=False)
-                    temas_finales.append(res['labels'][0])
-                except Exception as e:
-                    st.warning(f"Error clasificando la noticia {i+1}: {e}")
-                    temas_finales.append("Error de clasificación")
-            progress_bar.progress((i + 1) / len(textos), text=f"Clasificando noticia: {i+1}/{len(textos)}")
-
-        df['Tema'] = temas_finales
-
-    df.drop(columns=['texto_analisis'], inplace=True)
-    return df
-
-# La función render_hf_analysis_tab se actualiza para explicar el nuevo método.
-def render_hf_analysis_tab():
-    st.header("Análisis con Modelos Libres (HF)")
-    st.info("Utiliza modelos de Hugging Face para un análisis de Tono y Tema sin costo de API.")
-    st.warning(
-        "**Tono Avanzado:** El análisis de Tono utiliza un **sistema híbrido** que combina IA con reglas de negocio para un resultado más preciso.\n\n"
-        "**Tema Inteligente (BERTopic):** Para la generación **Dinámica**, se usa un modelo avanzado de **Topic Modeling (BERTopic)** que descubre los temas principales directamente de tus noticias, garantizando relevancia y diversidad. Luego, cada noticia se clasifica individualmente en el tema más adecuado."
-    )
-
-    # El resto de la función render_hf_analysis_tab no necesita cambios...
-    if 'hf_analysis_result' in st.session_state:
-        st.success("🎉 Análisis con Modelos Libres Completado")
-        st.dataframe(st.session_state.hf_analysis_result.head(10))
-        excel_data = generate_quick_analysis_excel(st.session_state.hf_analysis_result)
-        st.download_button(
-            label="📥 **Descargar Resultados del Análisis HF**",
-            data=excel_data,
-            file_name=f"Analisis_HF_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            type="primary"
-        )
-        if st.button("🔄 Realizar otro Análisis HF"):
-            for key in ['hf_analysis_result', 'hf_df', 'hf_file_name']:
-                if key in st.session_state: del st.session_state[key]
-            st.rerun()
-        return
-
-    if 'hf_df' not in st.session_state:
-        st.markdown("#### Paso 1: Sube tu archivo Excel")
-        hf_file = st.file_uploader("📂 **Sube tu archivo Excel**", type=["xlsx"], label_visibility="collapsed", key="hf_uploader")
-        if hf_file:
-            with st.spinner("Leyendo archivo..."):
-                try:
-                    st.session_state.hf_df = pd.read_excel(hf_file)
-                    st.session_state.hf_file_name = hf_file.name
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ No se pudo leer el archivo. Error: {e}")
-    else:
-        st.success(f"✅ Archivo **'{st.session_state.hf_file_name}'** cargado correctamente.")
-        st.markdown("#### Paso 2: Selecciona columnas y configura el análisis")
-        
-        with st.form("hf_analysis_form"):
-            df = st.session_state.hf_df
-            columns = df.columns.tolist()
-            
-            st.markdown("##### ✏️ Selecciona las columnas a analizar")
-            col1, col2 = st.columns(2)
-            title_col = col1.selectbox("Columna de **Título**", options=columns, index=0, key="hf_title")
-            summary_index = 1 if len(columns) > 1 else 0
-            summary_col = col2.selectbox("Columna de **Resumen/Contenido**", options=columns, index=summary_index, key="hf_summary")
-            
-            st.write("---")
-            st.markdown("##### 🏷️ Configuración de Análisis de Tema")
-            topic_method = st.radio(
-                "Elige cómo generar los temas:",
-                ("Dinámico", "Predefinido"),
-                horizontal=True,
-                help="**Dinámico:** El modelo descubre los temas automáticamente de tus datos usando BERTopic. **Predefinido:** Tú proporcionas una lista de temas y el modelo clasifica cada noticia en uno de ellos."
-            )
-
-            predefined_topics_text = ""
-            if topic_method == "Predefinido":
-                predefined_topics_text = st.text_area(
-                    "**Ingresa tus temas predefinidos (separados por ;)**",
-                    "Innovación y Tecnología; Sostenibilidad y Medio Ambiente; Resultados Financieros; Alianzas Estratégicas; Responsabilidad Social; Talento Humano y Cultura; Expansión de Mercado",
-                    height=100
-                )
-            
-            submitted = st.form_submit_button("🚀 **Analizar con Modelos Libres**", use_container_width=True, type="primary")
-
-            if submitted:
-                predefined_topics = []
-                if topic_method == "Predefinido":
-                    if not predefined_topics_text.strip():
-                        st.error("❌ Por favor, ingresa al menos un tema en la lista de temas predefinidos.")
-                        st.stop()
-                    predefined_topics = [topic.strip() for topic in predefined_topics_text.split(";") if topic.strip()]
-
-                df_to_process = st.session_state.hf_df.copy()
-                result_df = run_hf_analysis(df_to_process, title_col, summary_col, topic_method, predefined_topics)
-                st.session_state.hf_analysis_result = result_df
-                st.rerun()
-
-        if st.button("⬅️ Cargar otro archivo HF"):
-            for key in ['hf_df', 'hf_file_name', 'hf_analysis_result']:
-                if key in st.session_state: del st.session_state[key]
-            st.rerun()
-# ======================================
-# FIN: Funciones para Análisis Hugging Face
-# ======================================
-
 def main():
     load_custom_css()
     if not check_password(): return
@@ -1128,7 +889,7 @@ def main():
     st.markdown('<div class="main-header">📰 Sistema de Análisis de Noticias con IA</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Análisis personalizable de Tono y Tema/Subtema</div>', unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["Análisis Completo", "Análisis Rápido (IA)", "Análisis con Modelos Libres (HF)"])
+    tab1, tab2 = st.tabs(["Análisis Completo", "Análisis Rápido (IA)"])
 
     with tab1:
         if not st.session_state.get("processing_complete", False):
@@ -1174,11 +935,8 @@ def main():
 
     with tab2:
         render_quick_analysis_tab()
-
-    with tab3:
-        render_hf_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.2 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
