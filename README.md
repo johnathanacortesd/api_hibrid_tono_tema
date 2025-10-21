@@ -1,12 +1,11 @@
 * 📰 Sistema de Análisis de Noticias con IA (v5.2.1) *
 Este proyecto es una aplicación web construida con Streamlit que automatiza el análisis de dossieres de noticias. Utiliza un enfoque híbrido de reglas heurísticas avanzadas y modelos de lenguaje grande (LLMs) a través de la API de OpenAI para realizar tareas complejas de procesamiento de lenguaje natural (NLP) sobre textos en español.
 La aplicación está diseñada para ser intuitiva y robusta, ofreciendo dos flujos de trabajo principales: un Análisis Completo para dossieres estructurados y un Análisis Rápido para archivos Excel genéricos.
-
+``
 [![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
 <img width="1802" height="852" alt="Captura app" src="https://github.com/user-attachments/assets/36fb15a8-ee42-4048-bd7e-ddb8c978e50e" />
 
-(Nota: Reemplaza el enlace anterior con una captura de pantalla real de tu aplicación para un README más visual).
 * ✨ Características Principales *
 * 1. Análisis Completo de Dossieres *
 Este es el flujo de trabajo principal, diseñado para procesar un conjunto de archivos estructurados y generar un informe unificado y enriquecido.
