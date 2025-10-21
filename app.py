@@ -587,7 +587,7 @@ def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
     norm_keys = [norm_key(h) for h in headers]
     key_map = {nk: nk for nk in norm_keys}
-    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoiai": norm_key("Tono IAI"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)"), "region": norm_key("Region") })
+    key_map.update({ "titulo": norm_key("Titulo"), "resumen": norm_key("Resumen - Aclaracion"), "menciones": norm_key("Menciones - Empresa"), "medio": norm_key("Medio"), "tonoiai": norm_key("Tono IA"), "tema": norm_key("Tema"), "subtema": norm_key("Subtema"), "idnoticia": norm_key("ID Noticia"), "idduplicada": norm_key("ID duplicada"), "tipodemedio": norm_key("Tipo de Medio"), "hora": norm_key("Hora"), "link_nota": norm_key("Link Nota"), "link_streaming": norm_key("Link (Streaming - Imagen)"), "region": norm_key("Region") })
     
     rows, split_rows = [], []
     for row in sheet.iter_rows(min_row=2):
@@ -636,7 +636,7 @@ def generate_output_excel(all_processed_rows, key_map):
     out_wb = Workbook()
     out_sheet = out_wb.active
     out_sheet.title = "Resultado"
-    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono IAI","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","ID duplicada"]
+    final_order = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono IA","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","ID duplicada"]
     numeric_columns = {"ID Noticia", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres", "CPE", "Tier", "Audiencia"}
     out_sheet.append(final_order)
     link_style = NamedStyle(name="Hyperlink_Custom", font=Font(color="0000FF", underline="single"))
@@ -775,7 +775,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
         p_bar = st.progress(0, "Iniciando análisis de tono...")
         clasif_tono = ClasificadorTonoUltraV2(brand_name, aliases)
         resultados_tono = await clasif_tono.procesar_lote_async(df["texto_analisis"], p_bar, df[summary_col].fillna(''), df[title_col].fillna(''))
-        df['Tono IAI'] = [res["tono"] for res in resultados_tono]
+        df['Tono IA'] = [res["tono"] for res in resultados_tono]
         s.update(label="✅ **Paso 1/2:** Tono Analizado", state="complete")
 
     with st.status("🏷️ **Paso 2/2:** Analizando Tema...", expanded=True) as s:
