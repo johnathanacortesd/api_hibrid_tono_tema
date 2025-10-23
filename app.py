@@ -63,7 +63,7 @@ EXPRESIONES_NEUTRAS = ["informa","presenta informe","segun informe","segun estud
 VERBOS_DECLARATIVOS = ["dijo","afirmo","aseguro","segun","indico","apunto","declaro","explico","estimo", "segun el informe","segun la entidad","segun analistas","de acuerdo con"]
 MARCADORES_CONDICIONALES = ["podria","estaria","habria","al parecer","posible","trascendio","se rumora","seria","serian"]
 POS_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARIANTS]
-NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS] # <-- LÍNEA CORREGIDA
+NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS]
 
 # ======================================
 # Estilos CSS
@@ -671,14 +671,17 @@ def generate_output_excel(all_processed_rows, key_map):
 # ======================================
 # Proceso principal y UI
 # ======================================
-async def run_full_process_async(dossier_file, region_file, internet_file, brand_name, brand_aliases, tono_pkl_file, tema_pkl_file):
+async def run_full_process_async(dossier_file, region_file, internet_file, brand_name, brand_aliases, tono_pkl_file, tema_pkl_file, analysis_mode):
     start_time = time.time()
-    try:
-        openai.api_key = st.secrets["OPENAI_API_KEY"]
-        openai.aiosession.set(None)
-    except Exception:
-        st.error("❌ Error: OPENAI_API_KEY no encontrado en los Secrets de Streamlit.")
-        st.stop()
+    
+    # Solo verificar API Key si es necesaria
+    if "API" in analysis_mode or "Híbrido" in analysis_mode:
+        try:
+            openai.api_key = st.secrets["OPENAI_API_KEY"]
+            openai.aiosession.set(None)
+        except Exception:
+            st.error("❌ Error: OPENAI_API_KEY no encontrado en los Secrets de Streamlit. Es necesario para el modo de análisis seleccionado.")
+            st.stop()
 
     with st.status("📋 **Paso 1/5:** Limpieza y duplicados", expanded=True) as s:
         all_processed_rows, key_map = run_dossier_logic(load_workbook(dossier_file, data_only=True).active)
@@ -710,18 +713,29 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         df_temp = pd.DataFrame(rows_to_analyze)
         df_temp["resumen_api"] = df_temp[key_map["titulo"]].fillna("").astype(str) + ". " + df_temp[key_map["resumen"]].fillna("").astype(str)
 
+        # ================== ANÁLISIS DE TONO ==================
         with st.status("🎯 **Paso 3/5:** Análisis de Tono", expanded=True) as s:
             p_bar = st.progress(0)
-            if tono_pkl_file:
+            
+            # Opción 1: Usar PKL si el modo lo permite y el archivo existe
+            if ("PKL" in analysis_mode) and tono_pkl_file:
                 st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para {len(rows_to_analyze)} noticias...")
-                p_bar.progress(0.5); resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
+                p_bar.progress(0.5)
+                resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
                 if resultados_tono is None: st.stop()
                 p_bar.progress(1.0)
-            else:
+            
+            # Opción 2: Usar API si el modo lo permite
+            elif ("API" in analysis_mode) or ("Híbrido" in analysis_mode):
                 st.write(f"🤖 Usando IA para análisis de tono de {len(rows_to_analyze)} noticias...")
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             
+            # Opción 3: Omitir
+            else:
+                resultados_tono = [{"tono": "N/A"}] * len(rows_to_analyze)
+                st.write("ℹ️ Análisis de Tono omitido según el modo seleccionado.")
+
             df_temp[key_map["tonoiai"]] = [res["tono"] for res in resultados_tono]
             
             tonos = df_temp[key_map["tonoiai"]].value_counts()
@@ -729,22 +743,38 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             st.markdown(f'**Resultados de Tono:** <span style="color:green;">{positivos} Positivos</span>, <span style="color:red;">{negativos} Negativos</span>, <span style="color:gray;">{neutros} Neutros</span>', unsafe_allow_html=True)
             s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
 
+        # ================== ANÁLISIS DE TEMA Y SUBTEMA ==================
         with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
             p_bar = st.progress(0)
-            st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
-            clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
-            subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
+            
+            # --- SUBTEMA (Solo con API) ---
+            if "Solo Modelos PKL" in analysis_mode:
+                subtemas = ["N/A (Modo Solo PKL)"] * len(rows_to_analyze)
+                st.write("ℹ️ El análisis de Subtema se omite en el modo 'Solo Modelos PKL'.")
+            else:
+                st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
+                clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
+                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             df_temp[key_map["subtema"]] = subtemas
 
-            if tema_pkl_file:
+            # --- TEMA ---
+            # Opción 1: Usar PKL si el modo lo permite y el archivo existe
+            if ("PKL" in analysis_mode) and tema_pkl_file:
                 st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
                 if temas_principales is None: st.stop()
-                df_temp[key_map["tema"]] = temas_principales
-            else:
+            
+            # Opción 2: Usar API si el modo lo permite (y no es solo PKL)
+            elif "Solo Modelos PKL" not in analysis_mode:
                 st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
                 temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
-                df_temp[key_map["tema"]] = temas_principales
+            
+            # Opción 3: Omitir
+            else:
+                temas_principales = ["N/A"] * len(rows_to_analyze)
+                st.write("ℹ️ Análisis de Tema omitido según el modo seleccionado.")
+            
+            df_temp[key_map["tema"]] = temas_principales
             
             st.success(f"✅ **{len(set(df_temp[key_map['tema']]))}** temas principales y **{len(set(df_temp[key_map['subtema']]))}** subtemas únicos identificados")
             s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
@@ -903,18 +933,52 @@ def main():
                 st.markdown("### 🏢 Configuración de Marca Obligatoria")
                 brand_name = st.text_input("**Marca Principal**", placeholder="Ej: Bancolombia", key="main_brand_name")
                 brand_aliases_text = st.text_area("**Alias y voceros** (separados por ;)", placeholder="Ej: Ban;Juan Carlos Mora", height=80, key="main_brand_aliases")
-
-                with st.expander("⚙️ Opcional: Usar Modelos Personalizados (.pkl)"):
-                    st.info("Si subes un archivo aquí, se usará en lugar del análisis con IA (excepto para Subtema, que siempre usa IA).")
-                    tono_pkl_file = st.file_uploader("Sube `pipeline_sentimiento.pkl` para Tono", type=["pkl"])
-                    tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
+                
+                st.markdown("### ⚙️ Modo de Análisis")
+                analysis_mode = st.radio(
+                    "Selecciona cómo quieres realizar el análisis:",
+                    options=[
+                        "API de OpenAI (Recomendado)",
+                        "Híbrido (PKL + API)",
+                        "Solo Modelos PKL"
+                    ],
+                    index=0,
+                    key="analysis_mode_radio",
+                    captions=[
+                        "Usa la IA para Tono, Tema y Subtema. La opción más completa.",
+                        "Usa tus modelos PKL para Tono y/o Tema. La IA se usará para el Subtema.",
+                        "Usa tus modelos PKL para Tono y Tema. El Subtema se omitirá."
+                    ]
+                )
+                
+                tono_pkl_file = None
+                tema_pkl_file = None
+                if "PKL" in analysis_mode:
+                    st.markdown("#### 📥 Carga tus modelos personalizados (.pkl)")
+                    col_pkl1, col_pkl2 = st.columns(2)
+                    with col_pkl1:
+                        tono_pkl_file = st.file_uploader("Sube `pipeline_sentimiento.pkl` para Tono", type=["pkl"])
+                    with col_pkl2:
+                        tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
 
                 if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
+                    # Validaciones
+                    error = False
                     if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
-                        st.error("❌ Faltan archivos o el nombre de la marca.")
-                    else:
+                        st.error("❌ Faltan archivos obligatorios o el nombre de la marca.")
+                        error = True
+                    
+                    if analysis_mode == "Solo Modelos PKL" and (not tono_pkl_file or not tema_pkl_file):
+                        st.error("❌ Para el modo 'Solo Modelos PKL', debes subir **ambos** archivos .pkl.")
+                        error = True
+                    
+                    if analysis_mode == "Híbrido (PKL + API)" and not tono_pkl_file and not tema_pkl_file:
+                        st.error("❌ Para el modo 'Híbrido', debes subir **al menos un** archivo .pkl.")
+                        error = True
+
+                    if not error:
                         aliases = [a.strip() for a in brand_aliases_text.split(";") if a.strip()]
-                        asyncio.run(run_full_process_async(dossier_file, region_file, internet_file, brand_name, aliases, tono_pkl_file, tema_pkl_file))
+                        asyncio.run(run_full_process_async(dossier_file, region_file, internet_file, brand_name, aliases, tono_pkl_file, tema_pkl_file, analysis_mode))
                         st.rerun()
         else:
             st.markdown("## 🎉 Análisis Completado Exitosamente")
@@ -936,7 +1000,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.2.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.3.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
