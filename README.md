@@ -1,113 +1,146 @@
-# 📰 Sistema de Análisis de Noticias con IA (v5.2.1)
+# 📰 Sistema de Análisis de Noticias con IA
 
-Este proyecto es una aplicación web construida con Streamlit que automatiza el análisis de dossieres de noticias. Utiliza un enfoque híbrido de reglas heurísticas avanzadas y modelos de lenguaje grande (LLMs) a través de la API de OpenAI para realizar tareas complejas de procesamiento de lenguaje natural (NLP) sobre textos en español.
+Una aplicación web construida con **Streamlit** para el procesamiento, limpieza y clasificación avanzada de dossieres de noticias utilizando **Inteligencia Artificial (OpenAI)** y modelos de **Machine Learning** personalizados.
 
-La aplicación está diseñada para ser intuitiva y robusta, ofreciendo dos flujos de trabajo principales: un **Análisis Completo** para dossieres estructurados y un **Análisis Rápido** para archivos Excel genéricos.
+![Streamlit App Screenshot](https://raw.githubusercontent.com/username/repo/main/screenshot.png) <!-- ⚠️ Reemplaza esta URL con una captura de pantalla real de tu app -->
 
-[![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
-<img width="1802" height="852" alt="Captura app" src="https://github.com/user-attachments/assets/36fb15a8-ee42-4048-bd7e-ddb8c978e50e" />
 
----
+## 📜 Descripción General
+
+Este proyecto proporciona una solución integral para analistas de medios y comunicadores que necesitan procesar grandes volúmenes de noticias (dossieres). La aplicación automatiza tareas tediosas y complejas como la detección de duplicados, la normalización de datos y, lo más importante, el **análisis de sentimiento (Tono)** y la **clasificación temática (Tema y Subtema)** de cada artículo.
+
+Ofrece una interfaz amigable con dos flujos de trabajo principales:
+1.  **Análisis Completo:** Un proceso robusto diseñado para el formato estándar de dossieres, que incluye limpieza, mapeo de datos, deduplicación y análisis profundo.
+2.  **Análisis Rápido:** Una herramienta flexible para analizar rápidamente cualquier archivo Excel que contenga títulos y resúmenes, sin necesidad de una estructura de dossier fija.
 
 ## ✨ Características Principales
 
-### 1. Análisis Completo de Dossieres
+### 🧠 Análisis Inteligente
+-   **Análisis de Tono (Sentimiento):** Clasifica cada noticia como *Positiva*, *Negativa* o *Neutra* en relación con una marca específica, utilizando un modelo híbrido de reglas, embeddings y el poder de la API de OpenAI (GPT-4-Nano).
+-   **Clasificación Temática Dinámica:**
+    -   **Subtemas:** La IA genera subtemas específicos y detallados (2-6 palabras) para grupos de noticias similares, eliminando el ruido (nombres de marca, ciudades).
+    -   **Temas Principales:** Consolida automáticamente los subtemas en un número manejable de temas principales, utilizando clustering de embeddings y la capacidad de síntesis de la IA para nombrarlos de forma coherente.
+-   **Detección Avanzada de Duplicados:** Identifica noticias duplicadas con alta precisión mediante una combinación de:
+    -   🔗 Coincidencia de URL (para medios online).
+    -   ✍️ Similitud de títulos normalizados (para noticias de agencia replicadas).
+    -   ⏰ Coincidencia de Mención + Medio + Hora (para Radio y TV).
+-   **Agrupación Eficiente:** Utiliza embeddings vectoriales (`text-embedding-3-small`) y clustering aglomerativo para agrupar noticias semánticamente similares, optimizando las llamadas a la API y mejorando la consistencia del análisis.
 
-Este es el flujo de trabajo principal, diseñado para procesar un conjunto de archivos estructurados y generar un informe unificado y enriquecido.
+### ⚙️ Flexibilidad y Personalización
+-   **Múltiples Modos de Análisis (en Análisis Completo):**
+    1.  **🤖 API de OpenAI (Recomendado):** Utiliza la IA para todas las tareas de clasificación (Tono, Tema, Subtema). No requiere modelos pre-entrenados.
+    2.  **🧩 Híbrido (PKL + API):** Permite usar tus propios modelos `.pkl` para Tono y/o Tema, mientras la IA se encarga de generar los Subtemas.
+    3.  **📦 Solo Modelos PKL:** Ejecuta el análisis de Tono y Tema exclusivamente con tus modelos locales, ideal para operar sin conexión o sin costos de API (el análisis de Subtema se omite).
+-   **Mapeo y Normalización de Datos:** Limpia y estandariza datos clave como "Tipo de Medio" y enriquece las noticias con información de "Región" a partir de archivos de mapeo Excel.
+-   **Manejo de Alias y Voceros:** El análisis se centra en la marca principal y en una lista configurable de alias, filiales o voceros importantes.
 
-#### **Limpieza y Deduplicación Inteligente:**
-- Divide automáticamente filas con múltiples menciones en noticias individuales.
-- Identifica y marca noticias duplicadas basándose en:
-  - La URL (para medios online)
-  - La combinación de medio y hora (para radio/TV)
-  - La similitud de títulos (usando `SequenceMatcher`)
+### 💻 Interfaz de Usuario
+-   **Interfaz Web Intuitiva:** Construida con Streamlit para una experiencia de usuario sencilla y directa.
+-   **Seguridad:** 🔑 Acceso protegido por contraseña.
+-   **Dos Pestañas, Dos Usos:**
+    -   **Análisis Completo:** Guiado paso a paso para procesar dossieres formales.
+    -   **Análisis Rápido:** Herramienta ágil para análisis exploratorios sobre cualquier Excel.
+-   **Reporte Final:** Genera un archivo Excel (`.xlsx`) limpio y formateado con todas las clasificaciones, listo para ser utilizado en informes y dashboards.
 
-#### **Normalización y Mapeo de Datos:**
-- Estandariza los "Tipos de Medio" (ej: 'fm', 'diario' se convierten en 'Radio', 'Prensa').
-- Enriquece los datos mapeando medios a sus respectivas regiones y normalizando los nombres de medios de internet usando archivos Excel de referencia.
+## 🛠️ Stack Tecnológico
 
-#### **Análisis de Tono Híbrido (Reglas + IA):**
+-   **Backend:** Python 3.9+
+-   **Interfaz:** Streamlit
+-   **Análisis de Datos:** Pandas, NumPy
+-   **IA y NLP:** OpenAI API, Unidecode
+-   **Machine Learning:** Scikit-learn, Joblib
+-   **Manejo de Excel:** Openpyxl
 
-**Motor de Reglas Prioritarias:** Un sistema robusto que clasifica automáticamente la mayoría de los casos sin consultar a la IA:
+## 🚀 Instalación y Puesta en Marcha
 
-- **⭐ Positivo (Atribución de Experto):** Clasifica como Positivo si un vocero o experto de la marca es citado. La regla detecta patrones comunes como:
-  - `"[Cargo] de [Marca]"` (ej: "Gerente de Producto en Siemens")
-  - `"[Verbo de cita]... [Marca]"` (ej: "señala el director de Siemens")
-  - Esta regla soluciona los errores de clasificación de citas neutras.
+Sigue estos pasos para ejecutar la aplicación en tu entorno local.
 
-- **Positivo:** Si la marca responde activamente a una crisis (ej: "activa plan de contingencia ante inundación").
+### 1. Prerrequisitos
+-   Python 3.9 o superior.
+-   Git.
 
-- **Positivo/Negativo:** Basado en la co-ocurrencia de la marca con un léxico curado de palabras clave de acción:
-  - **Positiva:** lanzamiento, alianza, crecimiento
-  - **Negativa:** demanda, caída, problema
+### 2. Clonar el Repositorio
+```bash
+git clone https://github.com/tu-usuario/tu-repositorio.git
+cd tu-repositorio
+```
 
-**Refuerzo con IA (OpenAI):** Solo las noticias ambiguas que no son capturadas por las reglas se envían al modelo `gpt-4.1-nano-2025-04-14` para una clasificación de tono contextual, asegurando eficiencia y precisión.
+### 3. Crear un Entorno Virtual (Recomendado)
+```bash
+# Para macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
 
-#### **Generación Dinámica de Temas y Subtemas (IA):**
+# Para Windows
+python -m venv venv
+.\venv\Scripts\activate
+```
 
-- Agrupa noticias semánticamente similares usando embeddings vectoriales (`text-embedding-3-small`).
-- **Subtemas:** El modelo `gpt-4.1-nano-2025-04-14` genera un subtema específico y conciso (2-6 palabras) para cada grupo de noticias.
-- **Temas Principales:** Consolida los subtemas en un número definido de temas de alto nivel. Para ello:
-  - Agrupa los subtemas mediante clustering de embeddings
-  - Utiliza nuevamente la IA para nombrar las categorías resultantes de forma coherente y útil para informes.
+### 4. Instalar Dependencias
+El código requiere las siguientes librerías. Puedes instalarlas con pip:
+```bash
+pip install streamlit pandas openpyxl openai unidecode scikit-learn joblib numpy
+```
 
-#### **Generación de Informe Excel:**
+### 5. Configurar las Credenciales
+La aplicación utiliza un archivo `secrets.toml` para gestionar las credenciales de forma segura.
 
-- Produce un archivo `.xlsx` final con todas las columnas originales y las nuevas columnas de análisis (**Tono IA**, **Tema**, **Subtema**).
-- La columna `Justificacion Tono` ha sido eliminada para un informe más limpio.
-- Limpia títulos, corrige texto de resúmenes y preserva los hipervínculos.
+1.  Crea una carpeta `.streamlit` en la raíz de tu proyecto.
+2.  Dentro de esa carpeta, crea un archivo llamado `secrets.toml`.
+3.  Añade el siguiente contenido al archivo, reemplazando los valores:
+
+```toml
+# .streamlit/secrets.toml
+
+# Clave secreta de la API de OpenAI
+OPENAI_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Contraseña para acceder a la aplicación Streamlit
+APP_PASSWORD = "tu_contraseña_super_secreta"
+```
+
+### 6. Ejecutar la Aplicación
+Una vez configurado, inicia la aplicación con el siguiente comando:
+```bash
+streamlit run app.py
+```
+*Nota: Asegúrate de que tu archivo principal de Python se llame `app.py` o ajusta el comando.*
+
+## 📋 Cómo Usar
+
+### Análisis Completo
+
+1.  **📂 Carga los archivos obligatorios:**
+    -   `Dossier Principal (.xlsx)`: El archivo con las noticias a analizar.
+    -   `Mapeo de Región (.xlsx)`: Un Excel con dos columnas (Medio | Región) para asignar regiones.
+    -   `Mapeo Internet (.xlsx)`: Un Excel con dos columnas (URL de medio | Nombre oficial del medio) para normalizar medios online.
+2.  **🏢 Configura la marca:**
+    -   **Marca Principal:** El nombre de la empresa, producto o entidad a analizar.
+    -   **Alias y voceros:** Nombres alternativos, filiales o personas clave (separados por `;`).
+3.  **⚙️ Elige el Modo de Análisis:**
+    -   **API de OpenAI:** La opción por defecto y más potente.
+    -   **Híbrido:** Si quieres usar tus modelos `.pkl` para Tono/Tema. Aparecerán los campos para subirlos.
+    -   **Solo Modelos PKL:** Si quieres un análisis offline sin Subtemas. Deberás subir ambos archivos `.pkl`.
+4.  **🚀 Inicia el análisis** y espera a que el proceso de 5 pasos se complete.
+5.  **📥 Descarga el informe** en formato Excel.
+
+### Análisis Rápido (IA)
+
+1.  Sube **cualquier archivo Excel** que contenga noticias.
+2.  **✏️ Selecciona las columnas** que corresponden al **Título** y al **Resumen/Contenido**.
+3.  **🏢 Configura la marca** y sus alias.
+4.  **🚀 Inicia el análisis.** El sistema usará la API de OpenAI para generar Tono, Tema y Subtema.
+5.  **📥 Descarga los resultados** en un nuevo archivo Excel.
+
+### Formato de Modelos Personalizados (`.pkl`)
+
+Si eliges usar los modos "Híbrido" o "Solo Modelos PKL", tus modelos deben cumplir con los siguientes requisitos:
+
+-   **`pipeline_sentimiento.pkl`**: Debe ser un objeto compatible con Scikit-learn (como un `Pipeline`) que implemente un método `.predict()`. La salida de este método debe ser `1` para *Positivo*, `0` para *Neutro* y `-1` para *Negativo*.
+-   **`pipeline_tema.pkl`**: Debe ser un objeto similar que implemente `.predict()`. La salida debe ser una cadena de texto (`string`) con el nombre del tema clasificado.
 
 ---
-
-### 2. Análisis Rápido (IA)
-
-Una herramienta flexible para analizar rápidamente cualquier archivo Excel que contenga texto.
-
-- **Interfaz Guiada en 2 Pasos:** El usuario primero sube un archivo. Una vez cargado, la aplicación muestra las columnas del archivo y le pide que seleccione cuáles corresponden al **Título** y al **Resumen**.
-- **Análisis Focalizado:** Aplica los mismos potentes módulos de **Análisis de Tono Híbrido** y **Generación Dinámica de Temas/Subtemas** del flujo completo.
-- **Resultado Inmediato:** Añade las columnas `Tono IA`, `Tema` y `Subtema` al archivo original y permite la descarga inmediata del resultado.
-
----
-
-### 3. Autenticación y Personalización
-
-- **Acceso Seguro:** Protegido por una contraseña simple configurada a través de los Secrets de Streamlit.
-- **Soporte para Modelos Personalizados (.pkl):** Permite a usuarios avanzados subir sus propios modelos scikit-learn para Tono y Tema, reemplazando el análisis de IA por defecto en el flujo de "Análisis Completo".
-
----
-
-## 🛠️ Tecnologías Utilizadas
-
-- **Framework Web:** Streamlit
-- **Análisis de Datos:** Pandas, NumPy
-- **Procesamiento de Excel:** Openpyxl
-- **Inteligencia Artificial (NLP):**
-  - API de OpenAI para generación de embeddings, clasificación de tono y generación de temas.
-  - **Modelos Utilizados:** 
-    - `gpt-4.1-nano-2025-04-14` (para clasificación y generación de texto corto)
-    - `text-embedding-3-small` (para embeddings semánticos)
-- **Machine Learning:** Scikit-learn para clustering y para cargar modelos `.pkl` personalizados.
-- **Utilidades:** 
-  - `unidecode` para normalización de texto
-  - `asyncio` para peticiones concurrentes a la API
-
----
-
-## 🚀 Cómo Desplegar en Streamlit Cloud
-
-### 1. Fork/Clona este Repositorio
-Asegúrate de tener el código en tu propia cuenta de GitHub.
-
-### 2. Crea el archivo `requirements.txt`
-Este archivo es crucial. Debe estar en la raíz de tu repositorio y contener todas las dependencias:
-
-```text
-streamlit
-pandas
-openpyxl
-openai==0.28.0
-scikit-learn
-unidecode
-joblib
-numpy
+<div align="center">
+    <p>Realizado por Johnathan Cortés</p>
+</div>
