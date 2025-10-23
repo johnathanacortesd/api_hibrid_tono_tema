@@ -2,8 +2,9 @@
 
 Una aplicación web construida con **Streamlit** para el procesamiento, limpieza y clasificación avanzada de dossieres de noticias utilizando **Inteligencia Artificial (OpenAI)** y modelos de **Machine Learning** personalizados.
 
-![Streamlit App Screenshot](https://raw.githubusercontent.com/username/repo/main/screenshot.png) <!-- ⚠️ Reemplaza esta URL con una captura de pantalla real de tu app -->
+[![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
+<img width="1788" height="899" alt="image" src="https://github.com/user-attachments/assets/5626cf4c-d864-4edc-ab20-70f59ce60237" />
 
 
 ## 📜 Descripción General
