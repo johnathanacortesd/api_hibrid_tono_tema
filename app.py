@@ -675,7 +675,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
     start_time = time.time()
     
     # Solo verificar API Key si es necesaria
-    if "API" in analysis_mode or "Híbrido" in analysis_mode:
+    if "API" in analysis_mode:
         try:
             openai.api_key = st.secrets["OPENAI_API_KEY"]
             openai.aiosession.set(None)
@@ -726,7 +726,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 p_bar.progress(1.0)
             
             # Opción 2: Usar API si el modo lo permite
-            elif ("API" in analysis_mode) or ("Híbrido" in analysis_mode):
+            elif ("API" in analysis_mode):
                 st.write(f"🤖 Usando IA para análisis de tono de {len(rows_to_analyze)} noticias...")
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
@@ -938,16 +938,16 @@ def main():
                 analysis_mode = st.radio(
                     "Selecciona cómo quieres realizar el análisis:",
                     options=[
-                        "API de OpenAI (Recomendado)",
-                        "Híbrido (PKL + API)",
-                        "Solo Modelos PKL"
+                        "Híbrido (PKL + API) (Recomendado)",
+                        "Solo Modelos PKL",
+                        "API de OpenAI"
                     ],
                     index=0,
                     key="analysis_mode_radio",
                     captions=[
-                        "Usa la IA para Tono, Tema y Subtema. La opción más completa.",
-                        "Usa tus modelos PKL para Tono y/o Tema. La IA se usará para el Subtema.",
-                        "Usa tus modelos PKL para Tono y Tema. El Subtema se omitirá."
+                        "Combina tus modelos PKL con la IA. La opción más flexible y recomendada.",
+                        "Usa tus modelos PKL para Tono y Tema. El Subtema se omitirá.",
+                        "Usa la IA para Tono, Tema y Subtema. Potente y fácil si no tienes modelos propios."
                     ]
                 )
                 
@@ -972,7 +972,7 @@ def main():
                         st.error("❌ Para el modo 'Solo Modelos PKL', debes subir **ambos** archivos .pkl.")
                         error = True
                     
-                    if analysis_mode == "Híbrido (PKL + API)" and not tono_pkl_file and not tema_pkl_file:
+                    if "Híbrido (PKL + API)" in analysis_mode and not tono_pkl_file and not tema_pkl_file:
                         st.error("❌ Para el modo 'Híbrido', debes subir **al menos un** archivo .pkl.")
                         error = True
 
@@ -1000,7 +1000,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.3.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.3.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
