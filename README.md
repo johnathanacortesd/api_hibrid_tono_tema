@@ -4,7 +4,7 @@ Una aplicación web construida con **Streamlit** para el procesamiento, limpieza
 
 [![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
-<img width="1788" height="899" alt="image" src="https://github.com/user-attachments/assets/5626cf4c-d864-4edc-ab20-70f59ce60237" />
+<img width="1806" height="888" alt="image" src="https://github.com/user-attachments/assets/89a91e00-e75b-4846-8a42-2dbdfebe331d" />
 
 
 ## 📜 Descripción General
