@@ -36,6 +36,7 @@ st.set_page_config(
 
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
 OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
+OPENAI_MODEL_SUBTEMAS = "gpt-4o-mini"  # Modelo optimizado para subtemas
 
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
@@ -395,46 +396,148 @@ def analizar_tono_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[L
         return None
 
 # ======================================
-# Clasificador de Temas (IA y PKL)
+# Clasificador de Temas Mejorado V2
 # ======================================
-class ClasificadorTemaDinamico:
+class ClasificadorTemaDinamicoV2:
+    """
+    Versión mejorada que:
+    1. Primero analiza TODOS los textos individualmente
+    2. Luego agrupa subtemas similares de forma inteligente
+    3. Asigna subtemas consolidados con mayor precisión
+    """
     def __init__(self, marca: str, aliases: List[str]):
         self.marca, self.aliases = marca, aliases or []
 
-    def _generar_subtema_para_grupo(self, textos_muestra: List[str]) -> str:
-        prompt = (f"Genere un subtema específico y preciso (2-6 palabras) para estas noticias. No incluya la marca '{self.marca}', ciudades o gentilicios de Colombia.\n"
-                  f"Textos:\n---\n" + "\n---\n".join([m[:500] for m in textos_muestra]) + '\n---\nResponda solo en JSON: {"subtema":"..."}')
+    def _extraer_subtema_individual(self, texto: str) -> str:
+        """Extrae el subtema de UN solo texto con alta precisión"""
+        prompt = (
+            f"Analiza esta noticia y extrae el SUBTEMA PRINCIPAL en 2-4 palabras. "
+            f"No incluyas la marca '{self.marca}', ciudades colombianas, ni gentilicios.\n"
+            f"Enfócate en la ACCIÓN o TEMA CENTRAL.\n\n"
+            f"Ejemplos de buenos subtemas:\n"
+            f"- 'Resultados financieros'\n"
+            f"- 'Apertura de sucursal'\n"
+            f"- 'Alianza estratégica'\n"
+            f"- 'Innovación tecnológica'\n\n"
+            f"Texto: {texto[:800]}\n\n"
+            'Responde SOLO con el subtema en JSON: {"subtema":"..."}'
+        )
         try:
-            resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=40, temperature=0.05, response_format={"type": "json_object"})
+            resp = call_with_retries(
+                openai.ChatCompletion.create,
+                model=OPENAI_MODEL_SUBTEMAS,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=30,
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
             data = json.loads(resp.choices[0].message.content.strip())
-            return limpiar_tema_geografico(limpiar_tema(data.get("subtema", "Sin tema")), self.marca, self.aliases)
-        except Exception:
-            return limpiar_tema(" ".join(string_norm_label(" ".join(textos_muestra)).split()[:4]) or "Actividad Empresarial")
+            subtema = data.get("subtema", "Sin tema")
+            return limpiar_tema_geografico(limpiar_tema(subtema), self.marca, self.aliases)
+        except Exception as e:
+            palabras_clave = string_norm_label(texto).split()[:5]
+            return limpiar_tema(" ".join(palabras_clave) or "Actividad Empresarial")
 
-    def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar, resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
-        textos, n = df_columna_resumen.tolist(), len(df_columna_resumen)
-        progress_bar.progress(0.10, "🔍 Preparando agrupaciones para subtemas...")
-        class DSU:
-            def __init__(self, n): self.p = list(range(n))
-            def find(self, i):
-                if self.p[i] == i: return i
-                self.p[i] = self.find(self.p[i]); return self.p[i]
-            def union(self, i, j): self.p[self.find(j)] = self.find(i)
-        dsu = DSU(n)
-        for g in [agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_TEMAS), agrupar_por_titulo_similar(titulos_puros.tolist()), agrupar_por_resumen_puro(resumen_puro.tolist())]:
-            for _, idxs in g.items():
-                for j in idxs[1:]: dsu.union(idxs[0], j)
-        comp = defaultdict(list)
-        for i in range(n): comp[dsu.find(i)].append(i)
+    def _agrupar_subtemas_semanticamente(self, subtemas_unicos: List[str], num_noticias: int, progress_bar) -> Dict[str, str]:
+        """
+        Agrupa subtemas similares usando embeddings y clustering.
+        Retorna un mapeo {subtema_original: subtema_consolidado}
+        """
+        progress_bar.progress(0.7, f"🔄 Consolidando {len(subtemas_unicos)} subtemas únicos...")
         
-        mapa_idx_a_subtema, total_comp = {}, len(comp)
-        for hechos, (cid, idxs) in enumerate(comp.items(), 1):
-            muestra_textos = [textos[i] for i in idxs[:5]]
-            subtema = self._generar_subtema_para_grupo(muestra_textos)
-            for i in idxs: mapa_idx_a_subtema[i] = subtema
-            progress_bar.progress(0.1 + 0.5 * hechos / max(total_comp, 1), f"🏷️ Subtemas creados: {hechos}/{total_comp}")
+        emb_dict = {st: get_embedding(st) for st in subtemas_unicos if st and st != "Sin tema"}
+        subtemas_validos = [st for st, emb in emb_dict.items() if emb is not None]
         
-        return [mapa_idx_a_subtema.get(i, "Sin tema") for i in range(n)]
+        if len(subtemas_validos) < 5:
+            return {st: st for st in subtemas_unicos}
+
+        # Lógica de clustering escalable
+        if num_noticias <= 75:
+            target_clusters = max(5, int(len(subtemas_validos) * 0.25))
+            num_clusters = min(15, target_clusters)
+        elif 75 < num_noticias <= 300:
+            target_clusters = max(10, int(len(subtemas_validos) * 0.20))
+            num_clusters = min(20, target_clusters)
+        else: # > 300
+            target_clusters = max(15, int(len(subtemas_validos) * 0.15))
+            num_clusters = min(30, max(20, target_clusters))
+
+        if len(subtemas_validos) <= num_clusters or num_clusters < 2:
+            progress_bar.progress(0.8, "ℹ️ No se requiere consolidación adicional de subtemas.")
+            return {st: st for st in subtemas_unicos}
+        
+        emb_matrix = np.array([emb_dict[st] for st in subtemas_validos])
+        clustering = AgglomerativeClustering(n_clusters=num_clusters, metric="cosine", linkage="average").fit(emb_matrix)
+        
+        clusters = defaultdict(list)
+        for i, label in enumerate(clustering.labels_):
+            clusters[label].append(subtemas_validos[i])
+        
+        mapeo_subtemas = {}
+        for _, lista_subtemas in clusters.items():
+            if len(lista_subtemas) == 1:
+                mapeo_subtemas[lista_subtemas[0]] = lista_subtemas[0]
+            else:
+                nombre_consolidado = self._generar_nombre_cluster(lista_subtemas)
+                for subtema in lista_subtemas:
+                    mapeo_subtemas[subtema] = nombre_consolidado
+        
+        # Asignar subtemas que no se pudieron agrupar
+        for st in subtemas_unicos:
+            if st not in mapeo_subtemas:
+                mapeo_subtemas[st] = st
+        
+        return mapeo_subtemas
+
+    def _generar_nombre_cluster(self, subtemas: List[str]) -> str:
+        """Genera un nombre representativo para un grupo de subtemas"""
+        counter = Counter(subtemas)
+        if counter.most_common(1)[0][1] >= len(subtemas) * 0.5:
+            return counter.most_common(1)[0][0]
+        
+        prompt = (
+            f"Estos subtemas hablan del mismo tema general. "
+            f"Genera UN nombre consolidado preciso (2-4 palabras) que los represente:\n\n"
+            f"{', '.join(subtemas[:8])}\n\n"
+            f"El nombre debe ser específico y descriptivo, NO genérico.\n"
+            f"Responde SOLO el nombre del subtema consolidado."
+        )
+        try:
+            resp = call_with_retries(
+                openai.ChatCompletion.create,
+                model=OPENAI_MODEL_SUBTEMAS,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=25,
+                temperature=0.1
+            )
+            nombre = resp.choices[0].message.content.strip().strip('"\'')
+            return limpiar_tema(nombre)
+        except Exception:
+            return max(subtemas, key=len)
+
+    def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar, 
+                      resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
+        """Pipeline mejorado: Analiza, Agrupa y Asigna."""
+        textos = df_columna_resumen.tolist()
+        n = len(textos)
+        
+        progress_bar.progress(0.1, "🔍 Analizando cada noticia individualmente...")
+        subtemas_individuales = []
+        for i, texto in enumerate(textos):
+            subtemas_individuales.append(self._extraer_subtema_individual(texto))
+            if (i + 1) % 10 == 0:
+                progress_bar.progress(0.1 + 0.5 * (i + 1) / n, f"📝 Subtemas extraídos: {i+1}/{n}")
+        
+        progress_bar.progress(0.6, f"✅ {len(set(subtemas_individuales))} subtemas únicos identificados")
+        
+        subtemas_unicos = list(set(s for s in subtemas_individuales if s))
+        mapeo_consolidado = self._agrupar_subtemas_semanticamente(subtemas_unicos, n, progress_bar)
+        
+        subtemas_finales = [mapeo_consolidado.get(st, st) for st in subtemas_individuales]
+        progress_bar.progress(0.9, f"🎯 Consolidado a {len(set(subtemas_finales))} subtemas finales")
+        
+        return subtemas_finales
+
 
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
@@ -717,7 +820,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         with st.status("🎯 **Paso 3/5:** Análisis de Tono", expanded=True) as s:
             p_bar = st.progress(0)
             
-            # Opción 1: Usar PKL si el modo lo permite y el archivo existe
             if ("PKL" in analysis_mode) and tono_pkl_file:
                 st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para {len(rows_to_analyze)} noticias...")
                 p_bar.progress(0.5)
@@ -725,13 +827,11 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 if resultados_tono is None: st.stop()
                 p_bar.progress(1.0)
             
-            # Opción 2: Usar API si el modo lo permite
             elif ("API" in analysis_mode):
                 st.write(f"🤖 Usando IA para análisis de tono de {len(rows_to_analyze)} noticias...")
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             
-            # Opción 3: Omitir
             else:
                 resultados_tono = [{"tono": "N/A"}] * len(rows_to_analyze)
                 st.write("ℹ️ Análisis de Tono omitido según el modo seleccionado.")
@@ -753,23 +853,20 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 st.write("ℹ️ El análisis de Subtema se omite en el modo 'Solo Modelos PKL'.")
             else:
                 st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
-                clasif_temas = ClasificadorTemaDinamico(brand_name, brand_aliases)
+                clasif_temas = ClasificadorTemaDinamicoV2(brand_name, brand_aliases)
                 subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             df_temp[key_map["subtema"]] = subtemas
 
             # --- TEMA ---
-            # Opción 1: Usar PKL si el modo lo permite y el archivo existe
             if ("PKL" in analysis_mode) and tema_pkl_file:
                 st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
                 if temas_principales is None: st.stop()
             
-            # Opción 2: Usar API si el modo lo permite (y no es solo PKL)
             elif "Solo Modelos PKL" not in analysis_mode:
                 st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
                 temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
             
-            # Opción 3: Omitir
             else:
                 temas_principales = ["N/A"] * len(rows_to_analyze)
                 st.write("ℹ️ Análisis de Tema omitido según el modo seleccionado.")
@@ -797,7 +894,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
 # ======================================
 # INICIO: Funciones para Análisis Rápido (OpenAI)
 # ======================================
-
 async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col: str, brand_name: str, aliases: List[str]):
     df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
     
@@ -810,7 +906,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
 
     with st.status("🏷️ **Paso 2/2:** Analizando Tema...", expanded=True) as s:
         p_bar = st.progress(0, "Generando subtemas...")
-        clasif_temas = ClasificadorTemaDinamico(brand_name, aliases)
+        clasif_temas = ClasificadorTemaDinamicoV2(brand_name, aliases)
         subtemas = clasif_temas.procesar_lote(df["texto_analisis"], p_bar, df[summary_col].fillna(''), df[title_col].fillna(''))
         df['Subtema'] = subtemas
         
@@ -962,7 +1058,6 @@ def main():
                         tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
 
                 if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
-                    # Validaciones
                     error = False
                     if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
                         st.error("❌ Faltan archivos obligatorios o el nombre de la marca.")
