@@ -505,7 +505,8 @@ class ClasificadorTemaDinamicoV4:
     def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar, 
                       resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
         """Pipeline Híbrido: Precisión primero, luego consolidación inteligente."""
-        textos, n = df_columna_resumen.tolist(), len(textos)
+        textos = df_columna_resumen.tolist()
+        n = len(textos)
         
         progress_bar.progress(0.05, "FASE 1: Analizando cada noticia con precisión...")
         subtemas_individuales = []
@@ -797,55 +798,72 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
     if rows_to_analyze:
         df_temp = pd.DataFrame(rows_to_analyze)
         df_temp["resumen_api"] = df_temp[key_map["titulo"]].fillna("").astype(str) + ". " + df_temp[key_map["resumen"]].fillna("").astype(str)
+        
+        resultados_tono, subtemas, temas_principales = None, None, None
 
-        with st.status("🎯 **Paso 3/5:** Análisis de Tono", expanded=True) as s:
-            p_bar = st.progress(0)
-            if ("PKL" in analysis_mode) and tono_pkl_file:
-                st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para {len(rows_to_analyze)} noticias...")
-                p_bar.progress(0.5); resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file); p_bar.progress(1.0)
-                if resultados_tono is None: st.stop()
-            elif ("API" in analysis_mode):
-                st.write(f"🤖 Usando IA para análisis de tono de {len(rows_to_analyze)} noticias...")
+        if analysis_mode == "API de OpenAI":
+            with st.status("🎯 **Paso 3/5:** Análisis de Tono (API)", expanded=True) as s:
+                p_bar = st.progress(0, text="Iniciando análisis de tono...")
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-            else:
-                resultados_tono = [{"tono": "N/A"}] * len(rows_to_analyze)
-                st.write("ℹ️ Análisis de Tono omitido según el modo seleccionado.")
-            df_temp[key_map["tonoiai"]] = [res["tono"] for res in resultados_tono]
-            tonos = df_temp[key_map["tonoiai"]].value_counts()
-            positivos, negativos, neutros = tonos.get("Positivo", 0), tonos.get("Negativo", 0), tonos.get("Neutro", 0)
-            st.markdown(f'**Resultados de Tono:** <span style="color:green;">{positivos} Positivos</span>, <span style="color:red;">{negativos} Negativos</span>, <span style="color:gray;">{neutros} Neutros</span>', unsafe_allow_html=True)
-            s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
-
-        with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
-            p_bar = st.progress(0)
-            if "Solo Modelos PKL" in analysis_mode:
-                subtemas = ["N/A (Modo Solo PKL)"] * len(rows_to_analyze)
-                st.write("ℹ️ El análisis de Subtema se omite en el modo 'Solo Modelos PKL'.")
-            else:
-                st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
+                s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
+            
+            with st.status("🏷️ **Paso 4/5:** Análisis de Tema y Subtema (API)", expanded=True) as s:
+                p_bar = st.progress(0, text="Generando subtemas...")
                 clasif_temas = ClasificadorTemaDinamicoV4(brand_name, brand_aliases)
                 subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-            df_temp[key_map["subtema"]] = subtemas
+                
+                temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
+                s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
 
-            if ("PKL" in analysis_mode) and tema_pkl_file:
-                st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
+        elif analysis_mode == "Solo Modelos PKL":
+            with st.status("🎯 **Paso 3/5:** Análisis de Tono (PKL)", expanded=True) as s:
+                resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
+                if resultados_tono is None: st.stop()
+                s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
+            
+            with st.status("🏷️ **Paso 4/5:** Análisis de Tema (PKL)", expanded=True) as s:
+                subtemas = ["N/A (Modo Solo PKL)"] * len(rows_to_analyze)
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
                 if temas_principales is None: st.stop()
-            elif "Solo Modelos PKL" not in analysis_mode:
-                st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
-                temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
-            else:
-                temas_principales = ["N/A"] * len(rows_to_analyze)
-                st.write("ℹ️ Análisis de Tema omitido según el modo seleccionado.")
-            df_temp[key_map["tema"]] = temas_principales
-            st.success(f"✅ **{len(set(df_temp[key_map['tema']]))}** temas principales y **{len(set(df_temp[key_map['subtema']]))}** subtemas únicos identificados")
-            s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
+                s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
+
+        elif analysis_mode == "Híbrido (PKL + API) (Recomendado)":
+            with st.status("🎯 **Paso 3/5:** Análisis de Tono (Híbrido)", expanded=True) as s:
+                p_bar = st.progress(0)
+                if tono_pkl_file:
+                    st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para Tono...")
+                    resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
+                    if resultados_tono is None: st.stop()
+                else:
+                    st.write(f"🤖 Usando IA para análisis de Tono...")
+                    clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
+                    resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
+                s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
+
+            with st.status("🏷️ **Paso 4/5:** Análisis de Tema (Híbrido)", expanded=True) as s:
+                p_bar = st.progress(0)
+                st.write(f"🤖 Generando Subtemas específicos con IA...")
+                clasif_temas = ClasificadorTemaDinamicoV4(brand_name, brand_aliases)
+                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
+
+                if tema_pkl_file:
+                    st.write(f"🤖 Usando `pipeline_tema.pkl` para Temas principales...")
+                    temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
+                    if temas_principales is None: st.stop()
+                else:
+                    st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
+                    temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
+                s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
         
+        if resultados_tono: df_temp[key_map["tonoiai"]] = [res["tono"] for res in resultados_tono]
+        if subtemas: df_temp[key_map["subtema"]] = subtemas
+        if temas_principales: df_temp[key_map["tema"]] = temas_principales
+
         results_map = df_temp.set_index("original_index").to_dict("index")
         for row in all_processed_rows:
             if not row.get("is_duplicate"): row.update(results_map.get(row["original_index"], {}))
-    
+
     gc.collect()
 
     with st.status("📊 **Paso 5/5:** Generando informe final", expanded=True) as s:
@@ -1001,20 +1019,19 @@ def main():
                     "Selecciona cómo quieres realizar el análisis:",
                     options=[
                         "Híbrido (PKL + API) (Recomendado)",
-                        "Solo Modelos PKL",
-                        "API de OpenAI"
+                        "API de OpenAI",
+                        "Solo Modelos PKL"
                     ],
                     index=0,
                     key="analysis_mode_radio",
                     captions=[
-                        "Combina tus modelos PKL con la IA. La opción más flexible y recomendada.",
-                        "Usa tus modelos PKL para Tono y Tema. El Subtema se omitirá.",
-                        "Usa la IA para Tono, Tema y Subtema. Potente y fácil si no tienes modelos propios."
+                        "Usa tus PKL para Tono y/o Tema. La IA generará lo que falte (incluyendo siempre Subtema).",
+                        "Usa la IA para Tono, Tema y Subtema. Potente y fácil si no tienes modelos propios.",
+                        "Usa tus modelos PKL para Tono y Tema. Requiere ambos archivos y omite el Subtema."
                     ]
                 )
                 
-                tono_pkl_file = None
-                tema_pkl_file = None
+                tono_pkl_file, tema_pkl_file = None, None
                 if "PKL" in analysis_mode:
                     st.markdown("#### 📥 Carga tus modelos personalizados (.pkl)")
                     col_pkl1, col_pkl2 = st.columns(2)
@@ -1033,7 +1050,7 @@ def main():
                         st.error("❌ Para el modo 'Solo Modelos PKL', debes subir **ambos** archivos .pkl.")
                         error = True
                     
-                    if "Híbrido (PKL + API)" in analysis_mode and not tono_pkl_file and not tema_pkl_file:
+                    if analysis_mode == "Híbrido (PKL + API) (Recomendado)" and not tono_pkl_file and not tema_pkl_file:
                         st.error("❌ Para el modo 'Híbrido', debes subir **al menos un** archivo .pkl.")
                         error = True
 
@@ -1061,7 +1078,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.4.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.5.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
