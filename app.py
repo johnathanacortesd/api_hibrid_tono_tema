@@ -24,6 +24,50 @@ from typing import List, Dict, Tuple, Optional, Any
 import joblib # Importación para cargar modelos .pkl
 import gc     # Importación para el recolector de basura
 
+def debug_secrets():
+    st.set_page_config(layout="wide")
+    st.error("--- INICIO DE DEPURACIÓN DE SECRETS ---")
+    st.write("Esta es una prueba para verificar si los secrets se están cargando correctamente.")
+    
+    # 1. Verificar si el objeto st.secrets existe
+    if not hasattr(st, 'secrets'):
+        st.error("FATAL: El objeto `st.secrets` no existe. Los secrets no se están cargando en absoluto.")
+        st.stop()
+        
+    # 2. Verificar si el diccionario de secrets está vacío
+    if not st.secrets:
+        st.warning("El diccionario de secrets (`st.secrets`) está completamente vacío.")
+        st.info("Esto significa que Streamlit Cloud no está leyendo o procesando tu configuración de secrets. Por favor, borra los secrets, guárdalos, y luego vuelve a añadirlos y reinicia la app.")
+        st.stop()
+        
+    # 3. Mostrar TODAS las claves que Streamlit ha logrado cargar
+    st.success("Secrets cargados exitosamente. Verificando contenido...")
+    st.write("Claves disponibles en `st.secrets`:")
+    
+    available_keys = list(st.secrets.keys())
+    st.code(f"{available_keys}", language="python")
+
+    # 4. Comprobar específicamente la clave que necesitamos
+    expected_key = "OPENAI_API_KEY"
+    st.write(f"--- Comprobando la clave específica: `{expected_key}` ---")
+    
+    if expected_key in st.secrets:
+        st.success(f"¡ÉXITO! La clave `{expected_key}` FUE ENCONTRADA.")
+        key_value = st.secrets[expected_key]
+        st.write(f"Valor parcial: `{key_value[:3]}...{key_value[-4:]}` (Esto confirma que el valor también se cargó).")
+        st.info("Si ves este mensaje, el problema está en otra parte del código que se ejecuta después.")
+    else:
+        st.error(f"FALLO: La clave `{expected_key}` NO FUE ENCONTRADA en la lista de arriba.")
+        st.warning("Causa más probable: Hay un error de tipeo, un espacio invisible o un carácter especial en el nombre de la clave en tu configuración de secrets de Streamlit Cloud.")
+        st.info(f"Compara CUIDADOSAMENTE la cadena `{expected_key}` con las claves que aparecen en la lista de 'Claves disponibles'.")
+        
+    st.error("--- FIN DE DEPURACIÓN ---")
+    st.info("La ejecución de la aplicación se ha detenido aquí a propósito. Elimina este bloque de código para continuar con la ejecución normal una vez resuelto el problema.")
+    sys.exit() # Detiene la ejecución completa
+
+# Ejecutar la depuración inmediatamente
+debug_secrets()
+
 # ======================================
 # Configuracion general
 # ======================================
