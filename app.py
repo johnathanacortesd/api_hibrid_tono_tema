@@ -36,7 +36,7 @@ st.set_page_config(
 
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
 OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
-OPENAI_MODEL_SUBTEMAS = "gpt-4.1-nano-2025-04-14" 
+OPENAI_MODEL_SUBTEMAS = "gpt-4.1-nano-2025-04-14" # Modelo optimizado para subtemas
 
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
@@ -47,7 +47,7 @@ WINDOW = 80
 NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
 
 # Lista de ciudades y gentilicios colombianos para filtrar
-CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
+CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarc", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
 GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capitalino", "capitalinos", "capitalina", "capitalinas", "antioqueño", "antioqueños", "antioqueña", "antioqueñas", "paisa", "paisas", "medellense", "medellenses", "caleño", "caleños", "caleña", "caleñas", "valluno", "vallunos", "valluna", "vallunas", "vallecaucano", "vallecaucanos", "barranquillero", "barranquilleros", "cartagenero", "cartageneros", "costeño", "costeños", "costeña", "costeñas", "cucuteño", "cucuteños", "bumangués", "santandereano", "santandereanos", "boyacense", "boyacenses", "tolimense", "tolimenses", "huilense", "huilenses", "nariñense", "nariñenses", "pastuso", "pastusas", "cordobés", "cordobeses", "cauca", "caucano", "caucanos", "chocoano", "chocoanos", "casanareño", "casanareños", "caqueteño", "caqueteños", "guajiro", "guajiros", "llanero", "llaneros", "amazonense", "amazonenses", "colombiano", "colombianos", "colombiana", "colombianas"}
 
 # ======================================
@@ -401,154 +401,169 @@ def analizar_tono_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[L
 class ClasificadorTemaDinamicoV3:
     """
     Versión que prioriza PRECISIÓN sobre agrupación:
-    1. Cada noticia obtiene su subtema específico
-    2. Solo agrupa cuando hay MUY alta similitud semántica (>0.95)
-    3. Mantiene la especificidad de casos únicos
+    1. Pre-agrupa noticias por similitud de contenido para garantizar consistencia.
+    2. Cada noticia (o grupo) obtiene su subtema específico.
+    3. Solo agrupa semánticamente cuando hay MUY alta similitud (>0.95).
+    4. Mantiene la especificidad de casos únicos.
     """
     def __init__(self, marca: str, aliases: List[str]):
         self.marca, self.aliases = marca, aliases or []
 
-    def _extraer_subtema_individual(self, texto: str, contexto_previo: List[str] = None) -> str:
+    def _extraer_subtema_individual(self, texto: str) -> str:
         """
         Extrae el subtema de UN solo texto con máxima precisión.
-        Opcionalmente usa contexto de subtemas previos para consistencia.
         """
-        prompt_base = (
+        prompt = (
             f"Analiza esta noticia y extrae el SUBTEMA ESPECÍFICO en 2-5 palabras.\n"
             f"Sé PRECISO y ESPECÍFICO. No generalices.\n"
             f"No incluyas la marca '{self.marca}', ciudades colombianas, ni gentilicios.\n\n"
-            f"Ejemplos de BUENOS subtemas específicos:\n"
-            f"✓ 'Resultados financieros Q3 2024'\n"
-            f"✓ 'Apertura sucursal en Medellín'\n"
-            f"✓ 'Alianza con Microsoft'\n"
-            f"✓ 'Lanzamiento app móvil'\n"
-            f"✓ 'Premio innovación sostenible'\n\n"
-            f"Ejemplos de MALOS subtemas (muy genéricos):\n"
-            f"✗ 'Actividades'\n"
-            f"✗ 'Noticias'\n"
-            f"✗ 'Eventos'\n"
-            f"✗ 'Anuncios'\n\n"
+            f"Ejemplos de BUENOS subtemas:\n"
+            f"✓ 'Resultados financieros Q3 2024'\n✓ 'Alianza con Microsoft'\n✓ 'Lanzamiento app móvil'\n\n"
+            f"Ejemplos de MALOS subtemas (genéricos):\n"
+            f"✗ 'Actividades'\n✗ 'Noticias'\n✗ 'Anuncios'\n\n"
+            f"Texto: {texto[:1000]}\n\n"
+            'Responde SOLO en JSON: {"subtema":"..."}'
         )
-        
-        if contexto_previo and len(contexto_previo) > 0:
-            ejemplos_previos = ", ".join(list(set(contexto_previo))[-5:])
-            prompt_base += (
-                f"IMPORTANTE: Si esta noticia es muy similar a alguno de estos subtemas previos, "
-                f"usa el MISMO nombre exacto: {ejemplos_previos}\n\n"
-            )
-        
-        prompt_base += f"Texto: {texto[:1000]}\n\n"
-        prompt_base += 'Responde SOLO en JSON: {"subtema":"..."}'
-        
         try:
             resp = call_with_retries(
                 openai.ChatCompletion.create,
-                model=OPENAI_MODEL_SUBTEMAS,
-                messages=[{"role": "user", "content": prompt_base}],
-                max_tokens=40,
-                temperature=0.0,
-                response_format={"type": "json_object"}
+                model=OPENAI_MODEL_SUBTEMAS, messages=[{"role": "user", "content": prompt}],
+                max_tokens=40, temperature=0.0, response_format={"type": "json_object"}
             )
             data = json.loads(resp.choices[0].message.content.strip())
             subtema = data.get("subtema", "Sin tema")
             return limpiar_tema_geografico(limpiar_tema(subtema), self.marca, self.aliases)
-        except Exception as e:
+        except Exception:
             palabras = [p for p in string_norm_label(texto).split() if len(p) > 3][:5]
             return limpiar_tema(" ".join(palabras) or "Sin tema")
 
-    def _consolidar_solo_duplicados_exactos(self, subtemas: List[str], textos: List[str], 
-                                           progress_bar) -> List[str]:
-        """
-        Solo consolida subtemas que son REALMENTE el mismo tema.
-        Usa embeddings y un umbral MUY alto (0.95+) para evitar sobre-agrupación.
-        """
-        if len(set(subtemas)) <= 20:
-            progress_bar.progress(0.9, "✅ Subtemas suficientemente específicos, sin consolidación")
-            return subtemas
-        
-        progress_bar.progress(0.7, "🔍 Buscando duplicados semánticos exactos...")
-        
-        subtemas_unicos = list(set(subtemas))
-        
-        emb_dict = {st: get_embedding(st) for st in subtemas_unicos if st}
-        
-        if len(emb_dict) < 2:
-            return subtemas
-        
-        subtemas_validos = list(emb_dict.keys())
+    def _consolidar_subtemas_similares(self, subtemas: List[str], progress_bar) -> List[str]:
+        """Consolida subtemas que son semánticamente muy parecidos."""
+        progress_bar.progress(0.8, "🔍 Consolidando subtemas semánticamente similares...")
+        subtemas_unicos = [st for st in list(set(subtemas)) if st and st != "Sin tema"]
+        if len(subtemas_unicos) < 2: return subtemas
+
+        emb_dict = {st: get_embedding(st) for st in subtemas_unicos}
+        subtemas_validos = [st for st, emb in emb_dict.items() if emb is not None]
+        if len(subtemas_validos) < 2: return subtemas
+
         emb_matrix = np.array([emb_dict[st] for st in subtemas_validos])
-        similarity_matrix = cosine_similarity(emb_matrix)
+        clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=1 - 0.95, metric="cosine", linkage="average").fit(emb_matrix)
         
-        mapeo_consolidacion = {st: st for st in subtemas_unicos}
-        consolidados = 0
+        mapa_consolidacion = {}
+        for i, label in enumerate(clustering.labels_):
+            if label not in mapa_consolidacion: mapa_consolidacion[label] = []
+            mapa_consolidacion[label].append(subtemas_validos[i])
         
-        for i in range(len(subtemas_validos)):
-            for j in range(i + 1, len(subtemas_validos)):
-                if similarity_matrix[i][j] > 0.95:
-                    st1, st2 = subtemas_validos[i], subtemas_validos[j]
-                    
-                    if SequenceMatcher(None, st1.lower(), st2.lower()).ratio() > 0.8:
-                        if len(st1) >= len(st2):
-                            mapeo_consolidacion[st2] = st1
-                        else:
-                            mapeo_consolidacion[st1] = st2
-                        consolidados += 1
+        mapa_final = {st: st for st in subtemas}
+        for _, grupo in mapa_consolidacion.items():
+            if len(grupo) > 1:
+                representante = max(grupo, key=len)
+                for subtema in grupo: mapa_final[subtema] = representante
         
-        subtemas_finales = [mapeo_consolidacion.get(st, st) for st in subtemas]
-        
-        if consolidados > 0:
-            progress_bar.progress(0.85, f"🔗 {consolidados} pares de duplicados consolidados")
-        
-        return subtemas_finales
+        progress_bar.progress(0.9, f"🔗 {len(subtemas) - len(set(mapa_final.values()))} subtemas consolidados.")
+        return [mapa_final.get(st, st) for st in subtemas]
 
     def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar,
                       resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
         """
-        Pipeline enfocado en PRECISIÓN:
-        1. Analiza cada noticia individualmente con contexto incremental
-        2. Solo consolida duplicados semánticos exactos
-        3. Mantiene la especificidad de cada caso
+        Pipeline enfocado en PRECISIÓN y CONSISTENCIA:
+        1. Pre-agrupa noticias por similitud de título/resumen.
+        2. Analiza un representante de cada grupo para obtener un subtema consistente.
+        3. Analiza noticias únicas individualmente.
+        4. Realiza una consolidación semántica final.
         """
-        # =============================================================================
-        # INICIO DE LA CORRECCIÓN
-        # Se divide la asignación en dos líneas para evitar el UnboundLocalError.
-        # =============================================================================
-        textos = df_columna_resumen.tolist()
-        n = len(textos)
-        # =============================================================================
-        # FIN DE LA CORRECCIÓN
-        # =============================================================================
+        textos_combinados = df_columna_resumen.tolist()
+        resumenes = resumen_puro.tolist()
+        titulos = titulos_puros.tolist()
+        n = len(textos_combinados)
 
-        progress_bar.progress(0.1, "🔍 Analizando cada noticia con precisión...")
-        subtemas_individuales = []
-        contexto_acumulado = []
+        progress_bar.progress(0.1, "🔄 Pre-agrupando noticias por contenido similar...")
+
+        # --- INICIO: LÓGICA DE PRE-AGRUPACIÓN POR CONTENIDO ---
+        class DSU:
+            def __init__(self, n): self.p = list(range(n))
+            def find(self, i):
+                if self.p[i] == i: return i
+                self.p[i] = self.find(self.p[i]); return self.p[i]
+            def union(self, i, j): self.p[self.find(j)] = self.find(i)
+
+        dsu = DSU(n)
         
-        for i, texto in enumerate(textos):
-            contexto_batch = contexto_acumulado[-10:] if contexto_acumulado else None
+        def get_prefix(text, num_words=4):
+            if not isinstance(text, str): return ""
+            return " ".join(text.split()[:num_words])
+
+        norm_resumenes = {i: string_norm_label(r) for i, r in enumerate(resumenes)}
+        norm_titulos = {i: string_norm_label(t) for i, t in enumerate(titulos)}
+        
+        # Criterio 1: Texto completo idéntico
+        seen_resumen, seen_titulo = {}, {}
+        for i in range(n):
+            if norm_resumenes[i]:
+                if norm_resumenes[i] in seen_resumen: dsu.union(seen_resumen[norm_resumenes[i]], i)
+                else: seen_resumen[norm_resumenes[i]] = i
+            if norm_titulos[i]:
+                if norm_titulos[i] in seen_titulo: dsu.union(seen_titulo[norm_titulos[i]], i)
+                else: seen_titulo[norm_titulos[i]] = i
+
+        # Criterio 2: Prefijo de 4 palabras (exacto y similar)
+        resumen_prefixes = {i: get_prefix(r) for i, r in enumerate(resumenes)}
+        titulo_prefixes = {i: get_prefix(t) for i, t in enumerate(titulos)}
+        
+        seen_pref_r, seen_pref_t = {}, {}
+        for i in range(n):
+            if resumen_prefixes[i]:
+                if resumen_prefixes[i] in seen_pref_r: dsu.union(seen_pref_r[resumen_prefixes[i]], i)
+                else: seen_pref_r[resumen_prefixes[i]] = i
+            if titulo_prefixes[i]:
+                if titulo_prefixes[i] in seen_pref_t: dsu.union(seen_pref_t[titulo_prefixes[i]], i)
+                else: seen_pref_t[titulo_prefixes[i]] = i
+        
+        # Comparación de prefijos similares (O(n^2), usar con cuidado en datasets muy grandes)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if dsu.find(i) == dsu.find(j): continue
+                if titulo_prefixes[i] and titulo_prefixes[j] and SequenceMatcher(None, titulo_prefixes[i], titulo_prefixes[j]).ratio() > 0.9:
+                    dsu.union(i, j)
+                if resumen_prefixes[i] and resumen_prefixes[j] and SequenceMatcher(None, resumen_prefixes[i], resumen_prefixes[j]).ratio() > 0.9:
+                    dsu.union(i, j)
+
+        grupos = defaultdict(list)
+        for i in range(n): grupos[dsu.find(i)].append(i)
+        # --- FIN: LÓGICA DE PRE-AGRUPACIÓN ---
+
+        progress_bar.progress(0.3, f"👥 {len(grupos)} grupos de noticias identificados. Analizando...")
+        subtemas_finales = [""] * n
+        
+        grupos_procesados = 0
+        total_grupos = len(grupos)
+        
+        for rep_idx, indices in grupos.items():
+            # Seleccionar el mejor representante (el que tenga el texto más largo)
+            idx_representante = max(indices, key=lambda i: len(textos_combinados[i]))
+            texto_representante = textos_combinados[idx_representante]
             
-            subtema = self._extraer_subtema_individual(texto, contexto_batch)
-            subtemas_individuales.append(subtema)
-            contexto_acumulado.append(subtema)
+            # Generar subtema UNA VEZ por grupo
+            subtema_grupo = self._extraer_subtema_individual(texto_representante)
             
-            if (i + 1) % 5 == 0:
+            # Asignar el mismo subtema a todos los miembros del grupo
+            for i in indices:
+                subtemas_finales[i] = subtema_grupo
+            
+            grupos_procesados += 1
+            if grupos_procesados % 5 == 0:
                 progress_bar.progress(
-                    0.1 + 0.6 * (i + 1) / n,
-                    f"📝 Analizadas: {i+1}/{n} | Subtemas únicos: {len(set(subtemas_individuales))}"
+                    0.3 + 0.5 * (grupos_procesados / total_grupos),
+                    f"📝 Analizando grupo {grupos_procesados}/{total_grupos}"
                 )
         
-        progress_bar.progress(0.7, f"✅ {len(set(subtemas_individuales))} subtemas únicos identificados")
+        subtemas_consolidados = self._consolidar_subtemas_similares(subtemas_finales, progress_bar)
         
-        subtemas_finales = self._consolidar_solo_duplicados_exactos(
-            subtemas_individuales,
-            textos,
-            progress_bar
-        )
-        
-        num_final = len(set(subtemas_finales))
+        num_final = len(set(subtemas_consolidados))
         progress_bar.progress(1.0, f"🎯 Análisis completado: {num_final} subtemas específicos")
         
-        return subtemas_finales
-
+        return subtemas_consolidados
 
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
