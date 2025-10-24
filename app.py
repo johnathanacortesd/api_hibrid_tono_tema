@@ -34,10 +34,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Modelos de OpenAI actualizados según la solicitud
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
 OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
-OPENAI_MODEL_SUBTEMAS = "gpt-4.1-nano-2025-04-14"
+OPENAI_MODEL_SUBTEMAS = "gpt-4.1-nano-2025-04-14" 
 
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
@@ -325,14 +324,19 @@ class ClasificadorTonoUltraV2:
             t = unidecode(texto_representante.lower())
             brand_re = _build_brand_regex(self.marca, self.aliases)
             
+            # --- INICIO: REGLA DE ATRIBUCIÓN POSITIVA MEJORADA ---
             if brand_re != r"(a^b)":
                 cargos = r"(director|directora|gerente|presidente|presidenta|ceo|vocero|experto|experta|jefe|líder|especialista|manager|head of|director de|directora de|gerente de)"
                 verbos_cita = r"(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó)|según)"
+                
                 patron_cargo = f"({cargos}.{{0,100}}{brand_re}|{brand_re}.{{0,100}}{cargos})"
                 patron_verbo = f"({verbos_cita}.{{0,200}}{brand_re}|{brand_re}.{{0,200}}{verbos_cita})"
+                
                 patron_atribucion_positiva = re.compile(f"{patron_cargo}|{patron_verbo}", re.IGNORECASE)
+                
                 if patron_atribucion_positiva.search(t):
                     return {"tono": "Positivo"}
+            # --- FIN: REGLA MEJORADA ---
 
             pos_hits = sum(1 for p in POS_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
             neg_hits = sum(1 for p in NEG_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
@@ -392,140 +396,159 @@ def analizar_tono_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[L
         return None
 
 # ======================================
-# Clasificador de Temas V4 - Enfoque Híbrido
+# Clasificador de Temas V3 - Precisión Individual
 # ======================================
-class ClasificadorTemaDinamicoV4:
+class ClasificadorTemaDinamicoV3:
     """
-    Enfoque híbrido: combina precisión individual con consolidación semántica inteligente.
-    1. Extrae un subtema específico para CADA noticia.
-    2. Identifica subtemas recurrentes y los agrupa semánticamente.
-    3. Mantiene la especificidad de los casos únicos (singletons).
+    Versión que prioriza PRECISIÓN sobre agrupación:
+    1. Cada noticia obtiene su subtema específico
+    2. Solo agrupa cuando hay MUY alta similitud semántica (>0.95)
+    3. Mantiene la especificidad de casos únicos
     """
     def __init__(self, marca: str, aliases: List[str]):
         self.marca, self.aliases = marca, aliases or []
-        self.MIN_COUNT_FOR_GROUPING = 2 
-        self.SINGLETON_SIMILARITY_THRESHOLD = 0.88
 
-    def _extraer_subtema_individual(self, texto: str) -> str:
-        """Extrae el subtema de UN solo texto con máxima precisión."""
-        prompt = (
-            f"Extrae el SUBTEMA específico y conciso (2-5 palabras) de esta noticia. "
-            f"Enfócate en la acción principal. Sé muy preciso.\n"
-            f"No incluyas la marca '{self.marca}', ciudades o gentilicios colombianos.\n"
-            f"Ejemplos de buenos subtemas: 'Resultados financieros Q3', 'Alianza con Microsoft', 'Lanzamiento nueva app'.\n"
-            f"Ejemplos de malos subtemas (genéricos): 'Anuncios', 'Actividades'.\n\n"
-            f"Texto: {texto[:1200]}\n\n"
-            'Responde SOLO en JSON: {"subtema":"..."}'
+    def _extraer_subtema_individual(self, texto: str, contexto_previo: List[str] = None) -> str:
+        """
+        Extrae el subtema de UN solo texto con máxima precisión.
+        Opcionalmente usa contexto de subtemas previos para consistencia.
+        """
+        prompt_base = (
+            f"Analiza esta noticia y extrae el SUBTEMA ESPECÍFICO en 2-5 palabras.\n"
+            f"Sé PRECISO y ESPECÍFICO. No generalices.\n"
+            f"No incluyas la marca '{self.marca}', ciudades colombianas, ni gentilicios.\n\n"
+            f"Ejemplos de BUENOS subtemas específicos:\n"
+            f"✓ 'Resultados financieros Q3 2024'\n"
+            f"✓ 'Apertura sucursal en Medellín'\n"
+            f"✓ 'Alianza con Microsoft'\n"
+            f"✓ 'Lanzamiento app móvil'\n"
+            f"✓ 'Premio innovación sostenible'\n\n"
+            f"Ejemplos de MALOS subtemas (muy genéricos):\n"
+            f"✗ 'Actividades'\n"
+            f"✗ 'Noticias'\n"
+            f"✗ 'Eventos'\n"
+            f"✗ 'Anuncios'\n\n"
         )
+        
+        if contexto_previo and len(contexto_previo) > 0:
+            ejemplos_previos = ", ".join(list(set(contexto_previo))[-5:])
+            prompt_base += (
+                f"IMPORTANTE: Si esta noticia es muy similar a alguno de estos subtemas previos, "
+                f"usa el MISMO nombre exacto: {ejemplos_previos}\n\n"
+            )
+        
+        prompt_base += f"Texto: {texto[:1000]}\n\n"
+        prompt_base += 'Responde SOLO en JSON: {"subtema":"..."}'
+        
         try:
             resp = call_with_retries(
                 openai.ChatCompletion.create,
                 model=OPENAI_MODEL_SUBTEMAS,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=40, temperature=0.0, response_format={"type": "json_object"}
+                messages=[{"role": "user", "content": prompt_base}],
+                max_tokens=40,
+                temperature=0.0,
+                response_format={"type": "json_object"}
             )
             data = json.loads(resp.choices[0].message.content.strip())
             subtema = data.get("subtema", "Sin tema")
             return limpiar_tema_geografico(limpiar_tema(subtema), self.marca, self.aliases)
-        except Exception:
+        except Exception as e:
             palabras = [p for p in string_norm_label(texto).split() if len(p) > 3][:5]
             return limpiar_tema(" ".join(palabras) or "Sin tema")
 
-    def _generar_nombre_cluster(self, subtemas: List[str]) -> str:
-        """Genera un nombre representativo y consolidado para un grupo de subtemas."""
-        prompt = (
-            f"Estos subtemas son muy similares. Genera UN nombre consolidado (2-4 palabras) que los represente a todos de forma precisa.\n\n"
-            f"Subtemas a consolidar: {', '.join(subtemas[:10])}\n\n"
-            f"Responde únicamente con el nombre consolidado."
-        )
-        try:
-            resp = call_with_retries(
-                openai.ChatCompletion.create, model=OPENAI_MODEL_SUBTEMAS,
-                messages=[{"role": "user", "content": prompt}], max_tokens=25, temperature=0.1
-            )
-            return limpiar_tema(resp.choices[0].message.content.strip().strip('"\''))
-        except Exception:
-            return max(subtemas, key=len)
-
-    def _consolidar_subtemas_hibrido(self, subtemas_individuales: List[str], progress_bar) -> Dict[str, str]:
-        """Consolida subtemas frecuentes y mantiene los casos únicos."""
-        progress_bar.progress(0.7, "📊 Analizando frecuencias de subtemas...")
-        counts = Counter(subtemas_individuales)
+    def _consolidar_solo_duplicados_exactos(self, subtemas: List[str], textos: List[str], 
+                                           progress_bar) -> List[str]:
+        """
+        Solo consolida subtemas que son REALMENTE el mismo tema.
+        Usa embeddings y un umbral MUY alto (0.95+) para evitar sobre-agrupación.
+        """
+        if len(set(subtemas)) <= 20:
+            progress_bar.progress(0.9, "✅ Subtemas suficientemente específicos, sin consolidación")
+            return subtemas
         
-        subtemas_para_agrupar = [st for st, count in counts.items() if count >= self.MIN_COUNT_FOR_GROUPING and st != "Sin tema"]
-        singletons = [st for st, count in counts.items() if count < self.MIN_COUNT_FOR_GROUPING and st != "Sin tema"]
+        progress_bar.progress(0.7, "🔍 Buscando duplicados semánticos exactos...")
         
-        mapa_final = {st: st for st in singletons}
-        mapa_final["Sin tema"] = "Sin tema"
-
-        if not subtemas_para_agrupar or len(subtemas_para_agrupar) < 3:
-            progress_bar.progress(0.9, "✅ No se requiere consolidación mayor.")
-            return {st: st for st in subtemas_individuales}
-
-        progress_bar.progress(0.75, f"🧠 Agrupando {len(subtemas_para_agrupar)} subtemas frecuentes...")
-        emb_dict = {st: get_embedding(st) for st in subtemas_para_agrupar}
-        subtemas_validos = [st for st, emb in emb_dict.items() if emb]
+        subtemas_unicos = list(set(subtemas))
         
-        if len(subtemas_validos) < 3:
-            for st in subtemas_para_agrupar: mapa_final[st] = st
-            return mapa_final
-
+        emb_dict = {st: get_embedding(st) for st in subtemas_unicos if st}
+        
+        if len(emb_dict) < 2:
+            return subtemas
+        
+        subtemas_validos = list(emb_dict.keys())
         emb_matrix = np.array([emb_dict[st] for st in subtemas_validos])
-        num_clusters = max(5, int(len(subtemas_validos) * 0.4))
-        num_clusters = min(len(subtemas_validos) -1, num_clusters)
-
-        clustering = AgglomerativeClustering(n_clusters=num_clusters, metric="cosine", linkage="average").fit(emb_matrix)
+        similarity_matrix = cosine_similarity(emb_matrix)
         
-        clusters = defaultdict(list)
-        for i, label in enumerate(clustering.labels_): clusters[label].append(subtemas_validos[i])
-
-        for lista_cluster in clusters.values():
-            nombre_consolidado = self._generar_nombre_cluster(lista_cluster) if len(lista_cluster) > 1 else lista_cluster[0]
-            for subtema in lista_cluster:
-                mapa_final[subtema] = nombre_consolidado
+        mapeo_consolidacion = {st: st for st in subtemas_unicos}
+        consolidados = 0
         
-        progress_bar.progress(0.85, "✨ Re-evaluando casos únicos...")
-        nombres_consolidados = list(set(mapa_final.values()) - set(singletons) - {"Sin tema"})
-        if singletons and nombres_consolidados:
-            emb_grupos = {st: get_embedding(st) for st in nombres_consolidados}
-            emb_grupos_validos = {st: emb for st, emb in emb_grupos.items() if emb}
-            
-            if emb_grupos_validos:
-                nombres_grupos = list(emb_grupos_validos.keys())
-                matriz_grupos = np.array(list(emb_grupos_validos.values()))
-
-                for s in singletons:
-                    emb_s = get_embedding(s)
-                    if emb_s:
-                        sims = cosine_similarity([emb_s], matriz_grupos)[0]
-                        if sims.max() > self.SINGLETON_SIMILARITY_THRESHOLD:
-                            mapa_final[s] = nombres_grupos[np.argmax(sims)]
-        return mapa_final
-
-    def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar, 
-                      resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
-        """Pipeline Híbrido: Precisión primero, luego consolidación inteligente."""
-        textos = df_columna_resumen.tolist()
-        n = len(textos)
+        for i in range(len(subtemas_validos)):
+            for j in range(i + 1, len(subtemas_validos)):
+                if similarity_matrix[i][j] > 0.95:
+                    st1, st2 = subtemas_validos[i], subtemas_validos[j]
+                    
+                    if SequenceMatcher(None, st1.lower(), st2.lower()).ratio() > 0.8:
+                        if len(st1) >= len(st2):
+                            mapeo_consolidacion[st2] = st1
+                        else:
+                            mapeo_consolidacion[st1] = st2
+                        consolidados += 1
         
-        progress_bar.progress(0.05, "FASE 1: Analizando cada noticia con precisión...")
-        subtemas_individuales = []
-        for i, texto in enumerate(textos):
-            subtemas_individuales.append(self._extraer_subtema_individual(texto))
-            if (i + 1) % 5 == 0:
-                progress_bar.progress(0.05 + 0.6 * (i + 1) / n, f"📝 Analizadas: {i+1}/{n}")
+        subtemas_finales = [mapeo_consolidacion.get(st, st) for st in subtemas]
         
-        num_unicos_inicial = len(set(subtemas_individuales))
-        progress_bar.progress(0.65, f"✅ {num_unicos_inicial} subtemas iniciales identificados.")
-        
-        mapa_consolidado = self._consolidar_subtemas_hibrido(subtemas_individuales, progress_bar)
-        
-        subtemas_finales = [mapa_consolidado.get(st, st) for st in subtemas_individuales]
-        
-        num_final = len(set(subtemas_finales))
-        progress_bar.progress(1.0, f"🎯 Proceso completo. Subtemas: {num_unicos_inicial} ➡️ {num_final}")
+        if consolidados > 0:
+            progress_bar.progress(0.85, f"🔗 {consolidados} pares de duplicados consolidados")
         
         return subtemas_finales
+
+    def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar,
+                      resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
+        """
+        Pipeline enfocado en PRECISIÓN:
+        1. Analiza cada noticia individualmente con contexto incremental
+        2. Solo consolida duplicados semánticos exactos
+        3. Mantiene la especificidad de cada caso
+        """
+        # =============================================================================
+        # INICIO DE LA CORRECCIÓN
+        # Se divide la asignación en dos líneas para evitar el UnboundLocalError.
+        # =============================================================================
+        textos = df_columna_resumen.tolist()
+        n = len(textos)
+        # =============================================================================
+        # FIN DE LA CORRECCIÓN
+        # =============================================================================
+
+        progress_bar.progress(0.1, "🔍 Analizando cada noticia con precisión...")
+        subtemas_individuales = []
+        contexto_acumulado = []
+        
+        for i, texto in enumerate(textos):
+            contexto_batch = contexto_acumulado[-10:] if contexto_acumulado else None
+            
+            subtema = self._extraer_subtema_individual(texto, contexto_batch)
+            subtemas_individuales.append(subtema)
+            contexto_acumulado.append(subtema)
+            
+            if (i + 1) % 5 == 0:
+                progress_bar.progress(
+                    0.1 + 0.6 * (i + 1) / n,
+                    f"📝 Analizadas: {i+1}/{n} | Subtemas únicos: {len(set(subtemas_individuales))}"
+                )
+        
+        progress_bar.progress(0.7, f"✅ {len(set(subtemas_individuales))} subtemas únicos identificados")
+        
+        subtemas_finales = self._consolidar_solo_duplicados_exactos(
+            subtemas_individuales,
+            textos,
+            progress_bar
+        )
+        
+        num_final = len(set(subtemas_finales))
+        progress_bar.progress(1.0, f"🎯 Análisis completado: {num_final} subtemas específicos")
+        
+        return subtemas_finales
+
 
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
@@ -798,72 +821,55 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
     if rows_to_analyze:
         df_temp = pd.DataFrame(rows_to_analyze)
         df_temp["resumen_api"] = df_temp[key_map["titulo"]].fillna("").astype(str) + ". " + df_temp[key_map["resumen"]].fillna("").astype(str)
-        
-        resultados_tono, subtemas, temas_principales = None, None, None
 
-        if analysis_mode == "API de OpenAI":
-            with st.status("🎯 **Paso 3/5:** Análisis de Tono (API)", expanded=True) as s:
-                p_bar = st.progress(0, text="Iniciando análisis de tono...")
+        with st.status("🎯 **Paso 3/5:** Análisis de Tono", expanded=True) as s:
+            p_bar = st.progress(0)
+            if ("PKL" in analysis_mode) and tono_pkl_file:
+                st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para {len(rows_to_analyze)} noticias...")
+                p_bar.progress(0.5); resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file); p_bar.progress(1.0)
+                if resultados_tono is None: st.stop()
+            elif ("API" in analysis_mode):
+                st.write(f"🤖 Usando IA para análisis de tono de {len(rows_to_analyze)} noticias...")
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-                s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
-            
-            with st.status("🏷️ **Paso 4/5:** Análisis de Tema y Subtema (API)", expanded=True) as s:
-                p_bar = st.progress(0, text="Generando subtemas...")
-                clasif_temas = ClasificadorTemaDinamicoV4(brand_name, brand_aliases)
-                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-                
-                temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
-                s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
+            else:
+                resultados_tono = [{"tono": "N/A"}] * len(rows_to_analyze)
+                st.write("ℹ️ Análisis de Tono omitido según el modo seleccionado.")
+            df_temp[key_map["tonoiai"]] = [res["tono"] for res in resultados_tono]
+            tonos = df_temp[key_map["tonoiai"]].value_counts()
+            positivos, negativos, neutros = tonos.get("Positivo", 0), tonos.get("Negativo", 0), tonos.get("Neutro", 0)
+            st.markdown(f'**Resultados de Tono:** <span style="color:green;">{positivos} Positivos</span>, <span style="color:red;">{negativos} Negativos</span>, <span style="color:gray;">{neutros} Neutros</span>', unsafe_allow_html=True)
+            s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
 
-        elif analysis_mode == "Solo Modelos PKL":
-            with st.status("🎯 **Paso 3/5:** Análisis de Tono (PKL)", expanded=True) as s:
-                resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
-                if resultados_tono is None: st.stop()
-                s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
-            
-            with st.status("🏷️ **Paso 4/5:** Análisis de Tema (PKL)", expanded=True) as s:
+        with st.status("🏷️ **Paso 4/5:** Análisis de Tema", expanded=True) as s:
+            p_bar = st.progress(0)
+            if "Solo Modelos PKL" in analysis_mode:
                 subtemas = ["N/A (Modo Solo PKL)"] * len(rows_to_analyze)
+                st.write("ℹ️ El análisis de Subtema se omite en el modo 'Solo Modelos PKL'.")
+            else:
+                st.write(f"🤖 Generando Subtemas específicos con IA para {len(rows_to_analyze)} noticias...")
+                clasif_temas = ClasificadorTemaDinamicoV3(brand_name, brand_aliases)
+                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
+            df_temp[key_map["subtema"]] = subtemas
+
+            if ("PKL" in analysis_mode) and tema_pkl_file:
+                st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
                 if temas_principales is None: st.stop()
-                s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
-
-        elif analysis_mode == "Híbrido (PKL + API) (Recomendado)":
-            with st.status("🎯 **Paso 3/5:** Análisis de Tono (Híbrido)", expanded=True) as s:
-                p_bar = st.progress(0)
-                if tono_pkl_file:
-                    st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para Tono...")
-                    resultados_tono = analizar_tono_con_pkl(df_temp["resumen_api"].tolist(), tono_pkl_file)
-                    if resultados_tono is None: st.stop()
-                else:
-                    st.write(f"🤖 Usando IA para análisis de Tono...")
-                    clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
-                    resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-                s.update(label="✅ **Paso 3/5:** Tono Analizado", state="complete")
-
-            with st.status("🏷️ **Paso 4/5:** Análisis de Tema (Híbrido)", expanded=True) as s:
-                p_bar = st.progress(0)
-                st.write(f"🤖 Generando Subtemas específicos con IA...")
-                clasif_temas = ClasificadorTemaDinamicoV4(brand_name, brand_aliases)
-                subtemas = clasif_temas.procesar_lote(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
-
-                if tema_pkl_file:
-                    st.write(f"🤖 Usando `pipeline_tema.pkl` para Temas principales...")
-                    temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
-                    if temas_principales is None: st.stop()
-                else:
-                    st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
-                    temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
-                s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
+            elif "Solo Modelos PKL" not in analysis_mode:
+                st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
+                temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
+            else:
+                temas_principales = ["N/A"] * len(rows_to_analyze)
+                st.write("ℹ️ Análisis de Tema omitido según el modo seleccionado.")
+            df_temp[key_map["tema"]] = temas_principales
+            st.success(f"✅ **{len(set(df_temp[key_map['tema']]))}** temas principales y **{len(set(df_temp[key_map['subtema']]))}** subtemas únicos identificados")
+            s.update(label="✅ **Paso 4/5:** Temas Identificados", state="complete")
         
-        if resultados_tono: df_temp[key_map["tonoiai"]] = [res["tono"] for res in resultados_tono]
-        if subtemas: df_temp[key_map["subtema"]] = subtemas
-        if temas_principales: df_temp[key_map["tema"]] = temas_principales
-
         results_map = df_temp.set_index("original_index").to_dict("index")
         for row in all_processed_rows:
             if not row.get("is_duplicate"): row.update(results_map.get(row["original_index"], {}))
-
+    
     gc.collect()
 
     with st.status("📊 **Paso 5/5:** Generando informe final", expanded=True) as s:
@@ -890,7 +896,7 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
 
     with st.status("🏷️ **Paso 2/2:** Analizando Tema...", expanded=True) as s:
         p_bar = st.progress(0, "Generando subtemas...")
-        clasif_temas = ClasificadorTemaDinamicoV4(brand_name, aliases)
+        clasif_temas = ClasificadorTemaDinamicoV3(brand_name, aliases)
         subtemas = clasif_temas.procesar_lote(df["texto_analisis"], p_bar, df[summary_col].fillna(''), df[title_col].fillna(''))
         df['Subtema'] = subtemas
         
@@ -1019,19 +1025,20 @@ def main():
                     "Selecciona cómo quieres realizar el análisis:",
                     options=[
                         "Híbrido (PKL + API) (Recomendado)",
-                        "API de OpenAI",
-                        "Solo Modelos PKL"
+                        "Solo Modelos PKL",
+                        "API de OpenAI"
                     ],
                     index=0,
                     key="analysis_mode_radio",
                     captions=[
-                        "Usa tus PKL para Tono y/o Tema. La IA generará lo que falte (incluyendo siempre Subtema).",
-                        "Usa la IA para Tono, Tema y Subtema. Potente y fácil si no tienes modelos propios.",
-                        "Usa tus modelos PKL para Tono y Tema. Requiere ambos archivos y omite el Subtema."
+                        "Combina tus modelos PKL con la IA. La opción más flexible y recomendada.",
+                        "Usa tus modelos PKL para Tono y Tema. El Subtema se omitirá.",
+                        "Usa la IA para Tono, Tema y Subtema. Potente y fácil si no tienes modelos propios."
                     ]
                 )
                 
-                tono_pkl_file, tema_pkl_file = None, None
+                tono_pkl_file = None
+                tema_pkl_file = None
                 if "PKL" in analysis_mode:
                     st.markdown("#### 📥 Carga tus modelos personalizados (.pkl)")
                     col_pkl1, col_pkl2 = st.columns(2)
@@ -1050,7 +1057,7 @@ def main():
                         st.error("❌ Para el modo 'Solo Modelos PKL', debes subir **ambos** archivos .pkl.")
                         error = True
                     
-                    if analysis_mode == "Híbrido (PKL + API) (Recomendado)" and not tono_pkl_file and not tema_pkl_file:
+                    if "Híbrido (PKL + API)" in analysis_mode and not tono_pkl_file and not tema_pkl_file:
                         st.error("❌ Para el modo 'Híbrido', debes subir **al menos un** archivo .pkl.")
                         error = True
 
@@ -1078,7 +1085,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.5.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.3.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
