@@ -35,8 +35,8 @@ st.set_page_config(
 )
 
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
-OPENAI_MODEL_CLASIFICACION = "gpt-5-nano-2025-08-07"
-OPENAI_MODEL_SUBTEMAS = "gpt-5-nano-2025-08-07" # Modelo optimizado para subtemas
+OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
+OPENAI_MODEL_SUBTEMAS = "gpt-4.1-nano-2025-04-14" # Modelo optimizado para subtemas
 
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
