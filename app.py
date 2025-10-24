@@ -21,8 +21,8 @@ import json
 import asyncio
 import hashlib
 from typing import List, Dict, Tuple, Optional, Any
-import joblib # Importación para cargar modelos .pkl
-import gc     # Importación para el recolector de basura
+import joblib
+import gc
 
 # ======================================
 # Configuracion general
@@ -40,14 +40,24 @@ OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
 SIMILARITY_THRESHOLD_TEMAS = 0.85
-SIMILARITY_THRESHOLD_TITULOS = 0.95 # Elevado para ser más estricto con títulos casi idénticos
+SIMILARITY_THRESHOLD_TITULOS = 0.95
 MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 80
-NUM_TEMAS_PRINCIPALES = 25 # Número de temas principales a generar
+NUM_TEMAS_PRINCIPALES = 25
+MIN_SUBTEMAS_PARA_CONSOLIDAR = 10  # NUEVO: mínimo para consolidar
 
 # Lista de ciudades y gentilicios colombianos para filtrar
 CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
 GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capitalino", "capitalinos", "capitalina", "capitalinas", "antioqueño", "antioqueños", "antioqueña", "antioqueñas", "paisa", "paisas", "medellense", "medellenses", "caleño", "caleños", "caleña", "caleñas", "valluno", "vallunos", "valluna", "vallunas", "vallecaucano", "vallecaucanos", "barranquillero", "barranquilleros", "cartagenero", "cartageneros", "costeño", "costeños", "costeña", "costeñas", "cucuteño", "cucuteños", "bumangués", "santandereano", "santandereanos", "boyacense", "boyacenses", "tolimense", "tolimenses", "huilense", "huilenses", "nariñense", "nariñenses", "pastuso", "pastusas", "cordobés", "cordobeses", "cauca", "caucano", "caucanos", "chocoano", "chocoanos", "casanareño", "casanareños", "caqueteño", "caqueteños", "guajiro", "guajiros", "llanero", "llaneros", "amazonense", "amazonenses", "colombiano", "colombianos", "colombiana", "colombianas"}
+
+# NUEVO: Términos genéricos a evitar en temas
+TERMINOS_GENERICOS_PROHIBIDOS = {
+    'noticias', 'actividades', 'eventos', 'anuncios', 'información',
+    'comunicado', 'comunicados', 'reporte', 'reportes', 'general', 'varios', 
+    'diversas', 'otras', 'diversos', 'variadas', 'multiples', 'conjunto',
+    'diferentes', 'varias', 'algunos', 'ciertas', 'empresa', 'empresarial',
+    'corporativo', 'corporativa', 'organizacional', 'institucional'
+}
 
 # ======================================
 # Lexicos y patrones para analisis de tono
@@ -124,6 +134,7 @@ def norm_key(text: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", unidecode(str(text).strip().lower()))
 
 def limpiar_tema(tema: str) -> str:
+    """Limpia y normaliza un tema/subtema"""
     if not tema: return "Sin tema"
     tema = tema.strip().strip('"').strip("'").strip()
     if tema: tema = tema[0].upper() + tema[1:]
@@ -135,23 +146,59 @@ def limpiar_tema(tema: str) -> str:
     return tema if tema else "Sin tema"
 
 def limpiar_tema_geografico(tema: str, marca: str, aliases: List[str]) -> str:
+    """MEJORADO: Limpieza más agresiva de referencias geográficas y de marca"""
     if not tema: return "Sin tema"
+    
     tema_lower = tema.lower()
+    
+    # 1. Remover marca y aliases con word boundaries más estrictos
     all_brand_names = [marca.lower()] + [alias.lower() for alias in aliases if alias]
     for brand_name in all_brand_names:
         tema_lower = re.sub(rf'\b{re.escape(brand_name)}\b', '', tema_lower, flags=re.IGNORECASE)
         tema_lower = re.sub(rf'\b{re.escape(unidecode(brand_name))}\b', '', tema_lower, flags=re.IGNORECASE)
+    
+    # 2. NUEVO: Remover patrones geográficos más complejos
+    patrones_geograficos = [
+        r'\ben\s+\w+\b',  # "en Bogotá", "en Medellín"
+        r'\bde\s+\w+\b',  # "de Colombia"
+        r'\bdel\s+\w+\b', # "del país"
+        r'\b(nacional|regional|local|internacional)\b',
+        r'\b(sede|sucursal|oficina|tienda|punto)\s+\w+\b',  # "sede Bogotá"
+        r'\b(zona|sector|region|area)\s+\w+\b'
+    ]
+    
+    for patron in patrones_geograficos:
+        tema_lower = re.sub(patron, '', tema_lower, flags=re.IGNORECASE)
+    
+    # 3. Remover ciudades y gentilicios
     for ciudad in CIUDADES_COLOMBIA:
         tema_lower = re.sub(rf'\b{re.escape(ciudad)}\b', '', tema_lower, flags=re.IGNORECASE)
+    
     for gentilicio in GENTILICIOS_COLOMBIA:
         tema_lower = re.sub(rf'\b{re.escape(gentilicio)}\b', '', tema_lower, flags=re.IGNORECASE)
-    frases_geograficas = ["en colombia", "de colombia", "del pais", "en el pais", "nacional", "colombiano", "colombiana", "colombianos", "colombianas", "territorio nacional"]
+    
+    # 4. NUEVO: Remover frases geográficas comunes
+    frases_geograficas = [
+        "en colombia", "de colombia", "del pais", "en el pais", 
+        "territorio nacional", "a nivel nacional", "nivel nacional",
+        "en la region", "de la region", "regiones del"
+    ]
     for frase in frases_geograficas:
         tema_lower = re.sub(rf'\b{re.escape(frase)}\b', '', tema_lower, flags=re.IGNORECASE)
+    
+    # 5. Limpiar espacios múltiples y reconstruir
+    tema_lower = re.sub(r'\s+', ' ', tema_lower).strip()
+    
+    # 6. NUEVO: Filtrar palabras de menos de 3 caracteres (excepto siglas)
     palabras = [p.strip() for p in tema_lower.split() if p.strip()]
-    if not palabras: return "Sin tema"
-    tema_limpio = " ".join(palabras)
-    if tema_limpio: tema_limpio = tema_limpio[0].upper() + tema_limpio[1:]
+    palabras_filtradas = [p for p in palabras if len(p) >= 3 or p.isupper()]
+    
+    if not palabras_filtradas: 
+        return "Sin tema"
+    
+    # 7. Capitalizar correctamente
+    tema_limpio = " ".join(palabra.capitalize() for palabra in palabras_filtradas)
+    
     return limpiar_tema(tema_limpio)
 
 def string_norm_label(s: str) -> str:
@@ -221,6 +268,86 @@ def get_embedding(texto: str) -> Optional[List[float]]:
         resp = call_with_retries(openai.Embedding.create, input=[texto[:2000]], model=OPENAI_MODEL_EMBEDDING)
         return resp["data"][0]["embedding"]
     except Exception: return None
+
+# ======================================
+# NUEVO: Funciones de validación de calidad
+# ======================================
+def validar_calidad_subtema(subtema: str) -> bool:
+    """Valida que el subtema no sea demasiado genérico"""
+    if not subtema or subtema == "Sin tema":
+        return False
+    
+    subtema_lower = subtema.lower()
+    
+    # Verificar términos prohibidos
+    if any(term in subtema_lower for term in TERMINOS_GENERICOS_PROHIBIDOS):
+        return False
+    
+    # Debe tener al menos 2 palabras significativas (más de 2 caracteres)
+    palabras = [p for p in subtema.split() if len(p) > 2]
+    if len(palabras) < 2:
+        return False
+    
+    # Verificar que no sea solo artículos y preposiciones
+    palabras_sin_stopwords = [p for p in palabras if p.lower() not in STOPWORDS_ES]
+    if len(palabras_sin_stopwords) < 1:
+        return False
+    
+    return True
+
+def validar_calidad_tema(tema: str) -> Tuple[bool, str]:
+    """Valida que el tema principal no sea genérico. Retorna (es_valido, motivo)"""
+    if not tema or tema == "Sin tema":
+        return False, "tema vacío"
+    
+    tema_lower = tema.lower()
+    
+    # Verificar términos prohibidos
+    terminos_encontrados = [term for term in TERMINOS_GENERICOS_PROHIBIDOS if term in tema_lower]
+    if terminos_encontrados:
+        return False, f"contiene términos genéricos: {', '.join(terminos_encontrados)}"
+    
+    # Debe tener al menos 2 palabras
+    palabras = [p for p in tema.split() if len(p) > 2]
+    if len(palabras) < 2:
+        return False, "muy corto (menos de 2 palabras significativas)"
+    
+    return True, "válido"
+
+def fallback_subtema_inteligente(textos_muestra: List[str], marca: str, aliases: List[str]) -> str:
+    """NUEVO: Genera subtema usando análisis de frecuencia cuando falla la IA"""
+    from collections import Counter
+    
+    # Combinar todos los textos
+    texto_completo = " ".join(textos_muestra).lower()
+    
+    # Extraer palabras (solo letras, mínimo 4 caracteres)
+    palabras = re.findall(r'\b[a-záéíóúñ]{4,}\b', texto_completo)
+    
+    # Filtrar stopwords, marca, ciudades y gentilicios
+    all_brand_names_lower = set([marca.lower()] + [a.lower() for a in aliases if a])
+    
+    palabras_filtradas = [
+        p for p in palabras 
+        if p not in STOPWORDS_ES 
+        and p not in all_brand_names_lower
+        and p not in CIUDADES_COLOMBIA
+        and p not in GENTILICIOS_COLOMBIA
+        and p not in TERMINOS_GENERICOS_PROHIBIDOS
+    ]
+    
+    if not palabras_filtradas:
+        return "Actividad Empresarial"
+    
+    # Obtener las 3 palabras más frecuentes
+    contador = Counter(palabras_filtradas)
+    top_palabras = [palabra for palabra, _ in contador.most_common(3)]
+    
+    if len(top_palabras) >= 2:
+        subtema = " ".join(top_palabras[:3]).title()
+        return limpiar_tema(subtema)
+    
+    return "Actividad Empresarial"
 
 # ======================================
 # Agrupacion de textos
@@ -323,7 +450,7 @@ class ClasificadorTonoUltraV2:
             t = unidecode(texto_representante.lower())
             brand_re = _build_brand_regex(self.marca, self.aliases)
             
-            # --- INICIO: REGLA DE ATRIBUCIÓN POSITIVA MEJORADA ---
+            # Regla de atribución positiva mejorada
             if brand_re != r"(a^b)":
                 cargos = r"(director|directora|gerente|presidente|presidenta|ceo|vocero|experto|experta|jefe|líder|especialista|manager|head of|director de|directora de|gerente de)"
                 verbos_cita = r"(señal(a|ó)|dijo|afirm(a|ó)|asegur(a|ó)|explic(a|ó)|coment(a|ó)|indic(a|ó)|destac(a|ó)|resalt(a|ó)|anunci(a|ó)|precis(a|ó)|según)"
@@ -335,7 +462,6 @@ class ClasificadorTonoUltraV2:
                 
                 if patron_atribucion_positiva.search(t):
                     return {"tono": "Positivo"}
-            # --- FIN: REGLA MEJORADA ---
 
             pos_hits = sum(1 for p in POS_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
             neg_hits = sum(1 for p in NEG_PATTERNS if re.search(rf"{brand_re}.{{0,{WINDOW}}}{p.pattern}|{p.pattern}.{{0,{WINDOW}}}{brand_re}", t, re.IGNORECASE))
@@ -395,21 +521,66 @@ def analizar_tono_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> Optional[L
         return None
 
 # ======================================
-# Clasificador de Temas (IA y PKL)
+# MEJORADO: Clasificador de Temas (IA y PKL)
 # ======================================
 class ClasificadorTemaDinamico:
     def __init__(self, marca: str, aliases: List[str]):
         self.marca, self.aliases = marca, aliases or []
+        self.debug_mode = st.session_state.get("debug_mode", False)
 
     def _generar_subtema_para_grupo(self, textos_muestra: List[str]) -> str:
-        prompt = (f"Genere un subtema específico y preciso (2-6 palabras) para estas noticias. No incluya la marca '{self.marca}', ciudades o gentilicios de Colombia.\n"
-                  f"Textos:\n---\n" + "\n---\n".join([m[:500] for m in textos_muestra]) + '\n---\nResponda solo en JSON: {"subtema":"..."}')
+        """MEJORADO: Genera subtema con prompt más estructurado y validación"""
+        
+        # Limitar textos para el prompt
+        textos_limitados = [t[:400] for t in textos_muestra[:5]]
+        
+        prompt = (
+            f"Eres un experto en categorización de noticias corporativas. Analiza estos titulares y resúmenes de noticias sobre '{self.marca}'.\n\n"
+            "INSTRUCCIONES CRÍTICAS:\n"
+            "1. Identifica el tema ESPECÍFICO y ACCIONABLE (no genérico)\n"
+            "2. Usa exactamente 2-4 palabras\n"
+            "3. Enfócate en QUÉ está haciendo la empresa, no en generalidades\n"
+            "4. NO incluyas: nombres de marca, ciudades, gentilicios colombianos\n"
+            "5. EVITA términos vagos como: 'noticias', 'actividades', 'eventos', 'anuncios', 'información', 'general'\n\n"
+            "EJEMPLOS EXCELENTES:\n"
+            "✅ 'Apertura de sucursales'\n"
+            "✅ 'Resultados financieros Q3'\n"
+            "✅ 'Alianza con proveedores'\n"
+            "✅ 'Lanzamiento de producto'\n\n"
+            "EJEMPLOS PROHIBIDOS:\n"
+            "❌ 'Actividades empresariales' (muy genérico)\n"
+            "❌ 'Noticias varias' (sin valor)\n"
+            "❌ 'Eventos corporativos' (poco específico)\n\n"
+            f"Textos a analizar:\n---\n" + 
+            "\n---\n".join([f"• {txt}" for txt in textos_limitados]) + 
+            '\n---\n\nResponde ÚNICAMENTE con JSON: {"subtema":"..."}'
+        )
+        
         try:
-            resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=40, temperature=0.05, response_format={"type": "json_object"})
+            resp = call_with_retries(
+                openai.ChatCompletion.create,
+                model=OPENAI_MODEL_CLASIFICACION,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=40,
+                temperature=0.05,
+                response_format={"type": "json_object"}
+            )
             data = json.loads(resp.choices[0].message.content.strip())
-            return limpiar_tema_geografico(limpiar_tema(data.get("subtema", "Sin tema")), self.marca, self.aliases)
-        except Exception:
-            return limpiar_tema(" ".join(string_norm_label(" ".join(textos_muestra)).split()[:4]) or "Actividad Empresarial")
+            subtema_raw = data.get("subtema", "")
+            subtema = limpiar_tema_geografico(limpiar_tema(subtema_raw), self.marca, self.aliases)
+            
+            # NUEVO: Validar calidad del subtema
+            if not validar_calidad_subtema(subtema):
+                if self.debug_mode:
+                    st.warning(f"⚠️ Subtema rechazado por genérico: '{subtema}'. Intentando fallback...")
+                return fallback_subtema_inteligente(textos_muestra, self.marca, self.aliases)
+            
+            return subtema
+            
+        except Exception as e:
+            if self.debug_mode:
+                st.warning(f"⚠️ Error generando subtema con IA: {str(e)[:100]}")
+            return fallback_subtema_inteligente(textos_muestra, self.marca, self.aliases)
 
     def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar, resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
         textos, n = df_columna_resumen.tolist(), len(df_columna_resumen)
@@ -437,6 +608,7 @@ class ClasificadorTemaDinamico:
         return [mapa_idx_a_subtema.get(i, "Sin tema") for i in range(n)]
 
 def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
+    """MEJORADO: Consolidación con clustering dinámico y validación de calidad"""
     p_bar.progress(0.6, text=f"📊 Contando y filtrando subtemas...")
     subtema_counts = Counter(subtemas)
     
@@ -446,24 +618,35 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
     mapa_subtema_a_tema = {st: st for st in singletons}
     mapa_subtema_a_tema["Sin tema"] = "Sin tema"
 
-    if not subtemas_a_clusterizar or len(subtemas_a_clusterizar) < NUM_TEMAS_PRINCIPALES:
-        p_bar.progress(1.0, "ℹ️ No hay suficientes grupos de subtemas para consolidar. Usando subtemas como temas.")
+    # NUEVO: Verificar si hay suficientes subtemas para consolidar
+    if not subtemas_a_clusterizar or len(subtemas_a_clusterizar) < MIN_SUBTEMAS_PARA_CONSOLIDAR:
+        p_bar.progress(1.0, f"ℹ️ Solo {len(subtemas_a_clusterizar)} grupos de subtemas. Usando subtemas como temas.")
         for st in subtemas_a_clusterizar:
             mapa_subtema_a_tema[st] = st
         return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
 
+    # NUEVO: Calcular número óptimo de clusters dinámicamente
+    num_subtemas_unicos = len(subtemas_a_clusterizar)
+    num_temas_optimo = max(5, min(NUM_TEMAS_PRINCIPALES, num_subtemas_unicos // 4))
+    
+    st.info(f"📊 Creando aproximadamente **{num_temas_optimo}** temas principales basados en **{num_subtemas_unicos}** subtemas únicos")
+    
     p_bar.progress(0.7, f"🔄 Agrupando {len(subtemas_a_clusterizar)} subtemas frecuentes...")
     emb_subtemas = {st: get_embedding(st) for st in subtemas_a_clusterizar}
     subtemas_validos = [st for st, emb in emb_subtemas.items() if emb is not None]
     
-    if len(subtemas_validos) < NUM_TEMAS_PRINCIPALES:
+    if len(subtemas_validos) < num_temas_optimo:
         p_bar.progress(1.0, "ℹ️ No hay suficientes subtemas con embeddings para consolidar.")
         for st in subtemas_a_clusterizar:
             mapa_subtema_a_tema[st] = st
         return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
 
     emb_matrix = np.array([emb_subtemas[st] for st in subtemas_validos])
-    clustering = AgglomerativeClustering(n_clusters=NUM_TEMAS_PRINCIPALES, metric="cosine", linkage="average").fit(emb_matrix)
+    clustering = AgglomerativeClustering(
+        n_clusters=num_temas_optimo,  # NUEVO: Usar valor dinámico
+        metric="cosine",
+        linkage="average"
+    ).fit(emb_matrix)
     
     del emb_subtemas; gc.collect()
 
@@ -473,36 +656,77 @@ def consolidar_subtemas_en_temas(subtemas: List[str], p_bar) -> List[str]:
 
     p_bar.progress(0.8, "🧠 Generando nombres para los temas principales...")
     mapa_temas_finales = {}
+    temas_con_advertencias = []
+    
     for cluster_id, lista_subtemas in mapa_cluster_a_subtemas.items():
+        # MEJORADO: Tomar más contexto (15 en lugar de 12)
+        subtemas_texto = ', '.join(lista_subtemas[:15])
+        
         prompt = (
-            "Eres un analista de medios experto en categorizar contenido noticioso. A partir de la siguiente lista de subtemas detallados, genera un nombre de TEMA principal (2-4 palabras) que los agrupe de forma lógica y descriptiva.\n"
-            "El tema debe ser útil para un informe ejecutivo. Evita términos vagos como 'Noticias', 'Anuncios' o 'Actividades'.\n"
-            "Por ejemplo, si los subtemas son 'Apertura nueva sucursal', 'Resultados financieros Q3', un mal tema es 'Actividades de la empresa'. Un buen tema es 'Expansión y Resultados Financieros'.\n\n"
-            f"Subtemas a agrupar: {', '.join(lista_subtemas[:12])}\n\n"
-            "Responde únicamente con el nombre del TEMA principal."
+            "Eres un analista senior de medios especializado en crear taxonomías de noticias corporativas.\n\n"
+            "CONTEXTO: Estos subtemas detallados provienen de noticias sobre una empresa. Necesitas crear un TEMA PRINCIPAL que los agrupe.\n\n"
+            f"SUBTEMAS A AGRUPAR:\n{subtemas_texto}\n\n"
+            "REQUISITOS CRÍTICOS:\n"
+            "1. El tema debe ser ESPECÍFICO y DESCRIPTIVO (no genérico)\n"
+            "2. Usa 2-4 palabras exactamente\n"
+            "3. Debe reflejar el área de negocio o tipo de actividad\n"
+            "4. PROHIBIDO usar: 'Noticias', 'Actividades', 'Eventos', 'Anuncios', 'Información', 'General', 'Varios'\n\n"
+            "EJEMPLOS EXCELENTES (úsalos como guía):\n"
+            "• Subtemas: 'Nueva sucursal Medellín', 'Apertura Cali' → Tema: 'Expansión Geográfica'\n"
+            "• Subtemas: 'Resultados Q3', 'Utilidades aumentan' → Tema: 'Desempeño Financiero'\n"
+            "• Subtemas: 'Alianza con Toyota', 'Convenio logística' → Tema: 'Alianzas Estratégicas'\n"
+            "• Subtemas: 'Nuevo gerente', 'Cambios directiva' → Tema: 'Gestión Organizacional'\n\n"
+            "EJEMPLOS PROHIBIDOS:\n"
+            "❌ 'Actividades de la empresa' (muy genérico)\n"
+            "❌ 'Noticias varias' (sin valor analítico)\n"
+            "❌ 'Eventos corporativos' (poco específico)\n\n"
+            "Responde ÚNICAMENTE con el nombre del tema principal (2-4 palabras):"
         )
+        
         try:
-            resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=20, temperature=0.2)
+            resp = call_with_retries(
+                openai.ChatCompletion.create,
+                model=OPENAI_MODEL_CLASIFICACION,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=30,  # Aumentado de 20 a 30
+                temperature=0.2
+            )
             tema_principal = limpiar_tema(resp.choices[0].message.content.strip().replace('"', ''))
-        except Exception:
+            
+            # NUEVO: Validar calidad del tema
+            es_valido, motivo = validar_calidad_tema(tema_principal)
+            if not es_valido:
+                st.warning(f"⚠️ Tema potencialmente genérico detectado: '{tema_principal}' ({motivo})")
+                temas_con_advertencias.append(tema_principal)
+                # Usar el subtema más frecuente como fallback
+                tema_principal = max(lista_subtemas, key=lambda x: subtema_counts.get(x, 0))
+                
+        except Exception as e:
+            st.warning(f"⚠️ Error generando tema para cluster {cluster_id}: {str(e)[:100]}")
             tema_principal = max(lista_subtemas, key=len)
         
         mapa_temas_finales[cluster_id] = tema_principal
         for subtema in lista_subtemas:
             mapa_subtema_a_tema[subtema] = tema_principal
     
+    # NUEVO: Informar si hubo advertencias
+    if temas_con_advertencias:
+        st.info(f"ℹ️ Se detectaron {len(temas_con_advertencias)} tema(s) que podrían ser genéricos. Se aplicaron correcciones automáticas.")
+    
     if singletons and mapa_temas_finales:
         p_bar.progress(0.9, "✨ Asignando subtemas únicos a los temas principales...")
         emb_temas_finales = {name: get_embedding(name) for name in set(mapa_temas_finales.values())}
         valid_theme_names = [name for name, emb in emb_temas_finales.items() if emb]
-        emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
+        
+        if valid_theme_names:
+            emb_theme_matrix = np.array([emb_temas_finales[name] for name in valid_theme_names])
 
-        for singleton in singletons:
-            emb_singleton = get_embedding(singleton)
-            if emb_singleton is not None and len(valid_theme_names) > 0:
-                sims = cosine_similarity([emb_singleton], emb_theme_matrix)
-                best_match_idx = np.argmax(sims)
-                mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
+            for singleton in singletons:
+                emb_singleton = get_embedding(singleton)
+                if emb_singleton is not None and len(valid_theme_names) > 0:
+                    sims = cosine_similarity([emb_singleton], emb_theme_matrix)
+                    best_match_idx = np.argmax(sims)
+                    mapa_subtema_a_tema[singleton] = valid_theme_names[best_match_idx]
 
     p_bar.progress(1.0, "✅ Consolidación de temas completada.")
     return [mapa_subtema_a_tema.get(st, st) for st in subtemas]
@@ -717,7 +941,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         with st.status("🎯 **Paso 3/5:** Análisis de Tono", expanded=True) as s:
             p_bar = st.progress(0)
             
-            # Opción 1: Usar PKL si el modo lo permite y el archivo existe
             if ("PKL" in analysis_mode) and tono_pkl_file:
                 st.write(f"🤖 Usando `pipeline_sentimiento.pkl` para {len(rows_to_analyze)} noticias...")
                 p_bar.progress(0.5)
@@ -725,13 +948,11 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
                 if resultados_tono is None: st.stop()
                 p_bar.progress(1.0)
             
-            # Opción 2: Usar API si el modo lo permite
             elif ("API" in analysis_mode):
                 st.write(f"🤖 Usando IA para análisis de tono de {len(rows_to_analyze)} noticias...")
                 clasif_tono = ClasificadorTonoUltraV2(brand_name, brand_aliases)
                 resultados_tono = await clasif_tono.procesar_lote_async(df_temp["resumen_api"], p_bar, df_temp[key_map["resumen"]], df_temp[key_map["titulo"]])
             
-            # Opción 3: Omitir
             else:
                 resultados_tono = [{"tono": "N/A"}] * len(rows_to_analyze)
                 st.write("ℹ️ Análisis de Tono omitido según el modo seleccionado.")
@@ -758,18 +979,15 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             df_temp[key_map["subtema"]] = subtemas
 
             # --- TEMA ---
-            # Opción 1: Usar PKL si el modo lo permite y el archivo existe
             if ("PKL" in analysis_mode) and tema_pkl_file:
                 st.write(f"🤖 Usando `pipeline_tema.pkl` para generar Temas principales...")
                 temas_principales = analizar_temas_con_pkl(df_temp["resumen_api"].tolist(), tema_pkl_file)
                 if temas_principales is None: st.stop()
             
-            # Opción 2: Usar API si el modo lo permite (y no es solo PKL)
             elif "Solo Modelos PKL" not in analysis_mode:
                 st.write(f"🤖 Usando IA para consolidar Subtemas en Temas principales...")
                 temas_principales = consolidar_subtemas_en_temas(subtemas, p_bar)
             
-            # Opción 3: Omitir
             else:
                 temas_principales = ["N/A"] * len(rows_to_analyze)
                 st.write("ℹ️ Análisis de Tema omitido según el modo seleccionado.")
@@ -795,7 +1013,7 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
         s.update(label="✅ **Paso 5/5:** Proceso completado", state="complete")
 
 # ======================================
-# INICIO: Funciones para Análisis Rápido (OpenAI)
+# Funciones para Análisis Rápido (OpenAI)
 # ======================================
 
 async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col: str, brand_name: str, aliases: List[str]):
@@ -917,7 +1135,7 @@ def main():
     if not check_password(): return
 
     st.markdown('<div class="main-header">📰 Sistema de Análisis de Noticias con IA</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Análisis personalizable de Tono y Tema/Subtema</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Análisis personalizable de Tono y Tema/Subtema - v5.4.0</div>', unsafe_allow_html=True)
 
     tab1, tab2 = st.tabs(["Análisis Completo", "Análisis Rápido (IA)"])
 
@@ -962,7 +1180,6 @@ def main():
                         tema_pkl_file = st.file_uploader("Sube `pipeline_tema.pkl` para Tema", type=["pkl"])
 
                 if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
-                    # Validaciones
                     error = False
                     if not all([dossier_file, region_file, internet_file, brand_name.strip()]):
                         st.error("❌ Faltan archivos obligatorios o el nombre de la marca.")
@@ -1000,7 +1217,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.3.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.4.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
