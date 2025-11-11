@@ -37,7 +37,7 @@ st.set_page_config(
 
 # MEJORA 1: Actualización del modelo y parámetros
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
-OPENAI_MODEL_CLASIFICACION = "gpt-5-nano-2025-08-07" # Modelo actualizado
+OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14" # Modelo actualizado
 
 CONCURRENT_REQUESTS = 40
 SIMILARITY_THRESHOLD_TONO = 0.92
