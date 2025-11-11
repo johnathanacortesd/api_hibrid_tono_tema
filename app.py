@@ -1,4 +1,3 @@
-
 # ======================================
 # Importaciones
 # ======================================
@@ -851,21 +850,33 @@ def generate_output_excel(all_processed_rows, key_map):
     if "Hyperlink_Custom" not in out_wb.style_names: out_wb.add_named_style(link_style)
     
     for row_data in all_processed_rows:
-        row_data[key_map.get("titulo")] = clean_title_for_output(row_data.get(key_map.get("titulo")))
-        row_data[key_map.get("resumen")] = corregir_texto(row_data.get(key_map.get("resumen")))
+        # Limpieza de datos antes de escribir
+        titulo_key = key_map.get("titulo")
+        if titulo_key and titulo_key in row_data:
+            row_data[titulo_key] = clean_title_for_output(row_data.get(titulo_key))
+        
+        resumen_key = key_map.get("resumen")
+        if resumen_key and resumen_key in row_data:
+            row_data[resumen_key] = corregir_texto(row_data.get(resumen_key))
+
         row_to_append, links_to_add = [], {}
         for col_idx, header in enumerate(final_order, 1):
             nk_header = norm_key(header)
-            val = row_data.get(nk_header)
+            # Usar la clave del mapa para buscar el valor
+            data_key = key_map.get(nk_header, nk_header)
+            val = row_data.get(data_key)
+            
             cell_value = None
             if header in numeric_columns:
                 try: cell_value = float(val) if val is not None and str(val).strip() != "" else None
-                except (ValueError, TypeError): cell_value = str(val)
+                except (ValueError, TypeError): cell_value = str(val) if val is not None else None
             elif isinstance(val, dict) and "url" in val:
                 cell_value = val.get("value", "Link")
                 if val.get("url"): links_to_add[col_idx] = val["url"]
             elif val is not None: cell_value = str(val)
+            
             row_to_append.append(cell_value)
+        
         out_sheet.append(row_to_append)
         for col_idx, url in links_to_add.items():
             cell = out_sheet.cell(row=out_sheet.max_row, column=col_idx)
@@ -1239,7 +1250,7 @@ def main():
             st.markdown('<div class="success-card">', unsafe_allow_html=True)
             st.download_button("📥 **DESCARGAR INFORME**", data=st.session_state.output_data, file_name=st.session_state.output_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
             
-            # MEJORA 7: Botón de re-análisis de subtemas
+            # MEJORA 7: Botón de re-análisis de subtemas (CON CORRECCIÓN)
             if st.button("🔄 **Consolidar Subtemas del Resultado**", use_container_width=True):
                 if 'output_data' in st.session_state:
                     with st.spinner("Re-analizando y consolidando subtemas..."):
@@ -1258,17 +1269,23 @@ def main():
                             max_subtemas=max_subtemas
                         )
                         
-                        # Regenerar el archivo Excel con los subtemas consolidados
-                        key_map = {norm_key(c): norm_key(c) for c in df_result.columns} # Generar un key_map simple para la función
-                        all_rows = df_result.to_dict('records')
-                        # Convertir celdas de link de vuelta al formato esperado si es necesario (simplificado)
-                        for row in all_rows:
-                           if 'Link Nota' in row and isinstance(row['Link Nota'], str):
-                               row[norm_key('Link Nota')] = {'value': 'Link', 'url': row['Link Nota']}
-                           if 'Link (Streaming - Imagen)' in row and isinstance(row['Link (Streaming - Imagen)'], str):
-                               row[norm_key('Link (Streaming - Imagen)')] = {'value': 'Link', 'url': row['Link (Streaming - Imagen)']}
+                        # --- INICIO DE LA CORRECCIÓN ---
+                        
+                        # 1. Convertir el DataFrame a una lista de diccionarios. Las claves aún tienen formato de encabezado (ej. 'ID Noticia').
+                        all_rows_from_df = df_result.to_dict('records')
+                        
+                        # 2. **Paso Clave:** Crear una nueva lista de diccionarios con las claves normalizadas (ej. 'idnoticia'), que es lo que `generate_output_excel` espera.
+                        all_rows_normalized = [{norm_key(k): v for k, v in row.items()} for row in all_rows_from_df]
 
-                        st.session_state.output_data = generate_output_excel(all_rows, key_map)
+                        # 3. Crear un key_map simple y correcto para la función de generación.
+                        #    Mapea la clave normalizada a sí misma, ya que ahora los datos tienen el formato correcto.
+                        key_map = {norm_key(c): norm_key(c) for c in df_result.columns}
+
+                        # 4. Regenerar el archivo Excel usando los datos con claves normalizadas.
+                        st.session_state.output_data = generate_output_excel(all_rows_normalized, key_map)
+                        
+                        # --- FIN DE LA CORRECCIÓN ---
+                        
                         st.success("✅ Subtemas re-analizados y consolidados. El archivo de descarga ha sido actualizado.")
                         time.sleep(2)
                         st.rerun()
@@ -1283,7 +1300,7 @@ def main():
     with tab2:
         render_quick_analysis_tab()
     
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.4.0 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.9rem;'><p>Sistema de Análisis de Noticias v5.4.1 | Realizado por Johnathan Cortés</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
