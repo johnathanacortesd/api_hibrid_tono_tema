@@ -34,14 +34,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# CONFIGURACIÓN DE MODELOS (Actualizado a Generación 2025)
+# CONFIGURACIÓN DE MODELOS (Revertido a petición)
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
 OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
 
 CONCURRENT_REQUESTS = 50
 SIMILARITY_THRESHOLD_TONO = 0.91
 SIMILARITY_THRESHOLD_SUBTEMAS_AGRUPACION = 0.86 
-CONSOLIDATION_SEMANTIC_THRESHOLD = 0.82 # Umbral para unificar subtemas similares
+CONSOLIDATION_SEMANTIC_THRESHOLD = 0.82 
 SIMILARITY_THRESHOLD_TITULOS = 0.95 
 MAX_TOKENS_PROMPT_TXT = 4000
 
@@ -49,7 +49,7 @@ MAX_TOKENS_PROMPT_TXT = 4000
 STOPWORDS_ES = set(""" a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada """.split())
 
 # ======================================
-# Estilos CSS (Modernizados pero fieles al original)
+# Estilos CSS
 # ======================================
 def load_custom_css():
     st.markdown(
@@ -80,7 +80,7 @@ def check_password() -> bool:
         with st.form("password_form"):
             password = st.text_input("🔑 Contraseña:", type="password")
             if st.form_submit_button("🚀 Ingresar", use_container_width=True, type="primary"):
-                if password == st.secrets.get("APP_PASSWORD", "admin"): # Fallback para pruebas
+                if password == st.secrets.get("APP_PASSWORD", "admin"): 
                     st.session_state["password_correct"] = True
                     st.rerun()
                 else:
@@ -154,7 +154,7 @@ def agrupar_textos_similares(textos: List[str], umbral_similitud: float) -> Dict
     return {gid: g for gid, g in enumerate(grupos.values())}
 
 # ======================================
-# LÓGICA V4: CLASIFICADOR DE TONO (Surgical Focus)
+# CLASIFICADOR DE TONO (Surgical Focus)
 # ======================================
 class ClasificadorTonoUltraV4:
     def __init__(self, marca: str, aliases: List[str]):
@@ -166,7 +166,6 @@ class ClasificadorTonoUltraV4:
         self.brand_pattern = re.compile(self.brand_regex_str, re.IGNORECASE)
 
     def _extract_brand_sentences(self, texto: str) -> List[str]:
-        """Extrae la oración exacta donde está la marca y su contexto inmediato."""
         if not texto: return []
         sentences = re.split(r'(?<=[.!?])\s+', texto)
         indices_marca = [i for i, s in enumerate(sentences) if self.brand_pattern.search(unidecode(s.lower()))]
@@ -188,10 +187,10 @@ class ClasificadorTonoUltraV4:
         txt_analisis = "\n\n--- FRAGMENTO ---\n".join(contextos[:3])
         
         prompt = f"""Analiza el tono hacia la marca '{self.marca}' (alias: {aliases_str}).
-REGLAS ESTRICTAS:
+REGLAS:
 1. **Sujeto vs Objeto:** ¿La marca *logra* algo (Positivo) o es *criticada/sancionada* (Negativo)?
 2. **Contexto:** Si el mercado cae pero la marca crece -> Positivo.
-3. **Neutro:** Datos financieros planos, menciones corporativas estándar, o si la marca no es el foco principal.
+3. **Neutro:** Datos financieros planos, menciones corporativas estándar, o si la marca no es el foco.
 4. **Crisis:** Si la marca responde/ayuda -> Positivo. Si causó el daño -> Negativo.
 
 Fragmentos:
@@ -211,7 +210,6 @@ Responde JSON: {{"tono": "Positivo|Negativo|Neutro"}}"""
 
     async def procesar_lote_async(self, textos_concat: pd.Series, progress_bar):
         textos = textos_concat.tolist(); n = len(textos)
-        # Clustering inicial para eficiencia
         grupos = agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_TONO)
         mapa_grupos = {textos[max(idxs, key=lambda i: len(textos[i]))]: idxs for idxs in grupos.values()}
         
@@ -226,7 +224,7 @@ Responde JSON: {{"tono": "Positivo|Negativo|Neutro"}}"""
         
         for i, f in enumerate(asyncio.as_completed(tasks)):
             resultados_brutos.append(await f)
-            progress_bar.progress(0.1 + 0.4 * (i/total), f"🎯 Analizando Tono: {i}/{total}")
+            progress_bar.progress(0.1 + 0.4 * (i/max(total, 1)), f"🎯 Analizando Tono: {i}/{total}")
             
         resultados_finales = [None] * n
         for i, (rep, idxs) in enumerate(mapa_grupos.items()):
@@ -234,7 +232,7 @@ Responde JSON: {{"tono": "Positivo|Negativo|Neutro"}}"""
         return resultados_finales
 
 # ======================================
-# LÓGICA V4: CLASIFICADOR DE SUBTEMA CONSOLIDADO
+# CLASIFICADOR DE SUBTEMA CONSOLIDADO
 # ======================================
 class ClasificadorSubtemaV4:
     def __init__(self, marca: str, aliases: List[str]):
@@ -242,10 +240,11 @@ class ClasificadorSubtemaV4:
         self.brand_context = f"Marca: {marca}. Alias: {', '.join(aliases)}."
 
     async def _generar_subtema_batch(self, textos: List[str]) -> List[str]:
+        """Genera subtemas y asegura que la salida tenga la misma longitud que la entrada."""
         batch_txt = "\n".join([f"Noticia {i+1}: {t[:350]}" for i, t in enumerate(textos)])
         prompt = f"""{self.brand_context}
 Genera un SUBTEMA (2-5 palabras) ESPECÍFICO para cada noticia.
-REGLAS: NO uses el nombre de la marca. NO uses "Noticia de". Sé concreto (ej: "Lanzamiento App X", "Multa por Y").
+REGLAS: NO uses el nombre de la marca. Sé concreto.
 Input:
 {batch_txt}
 Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
@@ -254,24 +253,30 @@ Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
                                          messages=[{"role": "user", "content": prompt}], max_tokens=300, temperature=0.2,
                                          response_format={"type": "json_object"})
             items = json.loads(r.choices[0].message.content).get("items", [])
+            
             # Limpieza básica
             clean_items = []
             for it in items:
                 c = it.replace(self.marca, "").strip().capitalize()
                 for a in self.aliases: c = c.replace(a, "").strip()
                 clean_items.append(c if c else "Actividad General")
+            
+            # SAFETY CHECK: Rellenar o recortar para coincidir con input
+            if len(clean_items) < len(textos):
+                clean_items.extend(["Tema General"] * (len(textos) - len(clean_items)))
+            elif len(clean_items) > len(textos):
+                clean_items = clean_items[:len(textos)]
+                
             return clean_items
         except: return ["Tema General"] * len(textos)
 
     async def _consolidar_semantica(self, subtemas: List[str]) -> Dict[str, str]:
-        """Agrupa subtemas semánticamente idénticos bajo un nombre canónico."""
         if len(subtemas) < 2: return {s: s for s in subtemas}
         embs = [get_embedding(s) for s in subtemas]
         valid = [i for i, e in enumerate(embs) if e is not None]
         if not valid: return {s: s for s in subtemas}
         
         matrix = np.array([embs[i] for i in valid])
-        # Clustering con umbral semántico
         clust = AgglomerativeClustering(n_clusters=None, distance_threshold=1-CONSOLIDATION_SEMANTIC_THRESHOLD, metric="cosine", linkage="average").fit(matrix)
         
         groups = defaultdict(list)
@@ -280,7 +285,7 @@ Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
         mapa = {s: s for s in subtemas}
         async def nombrar_cluster(g):
             if len(g) == 1: return g, g[0]
-            p = f"Unifica estos temas en UNO solo breve y profesional: {', '.join(g)}. JSON: {{'nombre': '...'}}"
+            p = f"Unifica estos temas en UNO solo breve: {', '.join(g)}. JSON: {{'nombre': '...'}}"
             try:
                 r = await acall_with_retries(openai.ChatCompletion.acreate, model=OPENAI_MODEL_CLASIFICACION,
                                              messages=[{"role": "user", "content": p}], max_tokens=20, temperature=0.1, response_format={"type":"json_object"})
@@ -294,14 +299,12 @@ Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
         return mapa
 
     def _generar_temas_macro(self, subtemas: List[str]) -> List[str]:
-        """Genera Tema principal agrupando los Subtemas consolidados."""
         unicos = list(set(subtemas))
         if not unicos: return subtemas
         embs = [get_embedding(s) for s in unicos]
         valid = [i for i, e in enumerate(embs) if e is not None]
         if len(valid) < 2: return subtemas
         
-        # Clustering más laxo para Temas generales
         matrix = np.array([embs[i] for i in valid])
         clust = AgglomerativeClustering(n_clusters=None, distance_threshold=0.35, metric="cosine", linkage="average").fit(matrix)
         
@@ -310,7 +313,6 @@ Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
         for i, lbl in enumerate(clust.labels_): temp_groups[lbl].append(unicos[valid[i]])
         
         for grp in temp_groups.values():
-            # El nombre del tema es el subtema más corto (heurística de generalidad) o procesado
             nombre_tema = sorted(grp, key=len)[0].title()
             if len(nombre_tema.split()) > 4: nombre_tema = "Actualidad Corporativa"
             for s in grp: mapa_tema[s] = nombre_tema
@@ -318,26 +320,33 @@ Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
         return [mapa_tema.get(s, s) for s in subtemas]
 
     async def procesar_completo(self, textos: List[str], p_bar):
-        # 1. Agrupar textos similares para no procesar todo (Ahorro API)
+        # 1. Agrupar textos
         grupos = agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_SUBTEMAS_AGRUPACION)
         reps = [textos[idxs[0]] for idxs in grupos.values()]
         mapa_idxs = list(grupos.values())
         
-        # 2. Generar Subtemas (Batches)
+        # 2. Generar Subtemas
         subtemas_brutos = []
         batch_size = 10
         for i in range(0, len(reps), batch_size):
             batch = reps[i:i+batch_size]
             res = await self._generar_subtema_batch(batch)
+            # Proteccion adicional: asegurar extension exacta
             subtemas_brutos.extend(res)
-            p_bar.progress(0.5 + 0.3 * (i/len(reps)), f"🏷️ Generando etiquetas: {i}/{len(reps)}")
+            p_bar.progress(0.5 + 0.3 * (i/max(len(reps), 1)), f"🏷️ Generando etiquetas: {i}/{len(reps)}")
+            
+        # CRASH FIX: Truncar o rellenar si hubo desajuste
+        if len(subtemas_brutos) > len(mapa_idxs):
+            subtemas_brutos = subtemas_brutos[:len(mapa_idxs)]
+        while len(subtemas_brutos) < len(mapa_idxs):
+            subtemas_brutos.append("Tema General")
             
         # 3. Asignar a todos
         todos_subtemas = [""] * len(textos)
         for i, sub in enumerate(subtemas_brutos):
             for idx in mapa_idxs[i]: todos_subtemas[idx] = sub
             
-        # 4. Consolidar Semánticamente (La magia V4)
+        # 4. Consolidar
         p_bar.progress(0.9, "🧠 Consolidando semánticamente...")
         unicos = list(set(subtemas_brutos))
         mapa_cons = await self._consolidar_semantica(unicos)
@@ -349,7 +358,7 @@ Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
         return subtemas_finales, temas_finales
 
 # ======================================
-# Lógica Legacy PKL (Si se selecciona)
+# Lógica Legacy PKL
 # ======================================
 def analizar_tono_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> List[Dict[str, str]]:
     try:
@@ -374,7 +383,6 @@ def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
     norm_keys = [norm_key(h) for h in headers]
     key_map = {nk: nk for nk in norm_keys}
-    # Mapeos forzados para asegurar compatibilidad
     standard = {"titulo":"Titulo","resumen":"Resumen - Aclaracion","menciones":"Menciones - Empresa","medio":"Medio","idnoticia":"ID Noticia","tipodemedio":"Tipo de Medio","link_nota":"Link Nota","link_streaming":"Link (Streaming - Imagen)","region":"Region"}
     for k, v in standard.items(): key_map[k] = norm_key(v)
     
@@ -398,7 +406,6 @@ def run_dossier_logic(sheet):
             new["original_index"] = idx
             new["is_duplicate"] = False
             
-            # Duplicados simples (ID + Mención)
             k_dup = (str(new.get(key_map["idnoticia"])), new[key_map["menciones"]])
             if k_dup in seen:
                 new["is_duplicate"] = True
@@ -422,7 +429,6 @@ def fix_links_and_region(rows, key_map, region_file, internet_file):
             r[key_map["medio"]] = int_map[med]
             r[key_map["tipodemedio"]] = "Internet"
             
-        # Link logic logic
         tm = r.get(key_map["tipodemedio"])
         ln, ls = key_map["link_nota"], key_map["link_streaming"]
         link_n, link_s = r.get(ln), r.get(ls)
@@ -447,7 +453,6 @@ def generate_output_excel(rows, key_map):
             nk = norm_key(h)
             k = key_map.get(nk, nk)
             val = r.get(k)
-            
             if isinstance(val, dict) and "url" in val:
                 out_row.append(val.get("value", "Link"))
                 if val.get("url"): links[idx] = val["url"]
@@ -481,13 +486,14 @@ async def run_full_process_async(dossier, region, internet, brand, aliases, mode
         fix_links_and_region(rows, kmap, region, internet)
         s.update(label="✅ Paso 2/5: Completado", state="complete")
 
-    # Preparar datos para análisis
+    # Preparar datos (SIN DUPLICADOS para análisis)
     rows_to_analyze = [r for r in rows if not r.get("is_duplicate")]
+    
     if rows_to_analyze:
         df_temp = pd.DataFrame(rows_to_analyze)
         df_temp["txt_full"] = df_temp[kmap["titulo"]].fillna("").astype(str) + ". " + df_temp[kmap["resumen"]].fillna("").astype(str)
         
-        # 3. Tono (V4)
+        # 3. Tono
         with st.status("🎯 Paso 3/5: Análisis de Tono", expanded=True) as s:
             p_bar = st.progress(0)
             if "PKL" in mode and tono_pkl:
@@ -497,28 +503,29 @@ async def run_full_process_async(dossier, region, internet, brand, aliases, mode
                 res = await cls_tono.procesar_lote_async(df_temp["txt_full"], p_bar)
             
             df_temp["Tono IA"] = [r["tono"] for r in res]
+            
+            # Mostrar métricas de lo analizado (Únicas)
             pos = sum(1 for r in res if r["tono"]=="Positivo")
             neg = sum(1 for r in res if r["tono"]=="Negativo")
-            st.write(f"Resultados: 🟢 {pos} | 🔴 {neg}")
+            st.markdown(f"**Resultados (Noticias Únicas):** 🟢 {pos} | 🔴 {neg}")
             s.update(label="✅ Paso 3/5: Completado", state="complete")
 
-        # 4. Tema/Subtema (V4 Consolidado)
+        # 4. Tema/Subtema
         with st.status("🏷️ Paso 4/5: Temas y Subtemas", expanded=True) as s:
             p_bar = st.progress(0)
             if "Solo Modelos PKL" in mode and tema_pkl:
                 temas = analizar_temas_con_pkl(df_temp["txt_full"].tolist(), tema_pkl)
                 subtemas = ["N/A (PKL)"] * len(temas)
             else:
-                # Aquí usamos la nueva lógica de consolidación semántica
                 cls_sub = ClasificadorSubtemaV4(brand, aliases)
                 subtemas, temas = await cls_sub.procesar_completo(df_temp["txt_full"].tolist(), p_bar)
                 
             df_temp["Tema"] = temas
             df_temp["Subtema"] = subtemas
-            st.write(f"Subtemas únicos: {len(set(subtemas))}")
+            st.write(f"Subtemas únicos generados: {len(set(subtemas))}")
             s.update(label="✅ Paso 4/5: Completado", state="complete")
             
-        # Merge
+        # Merge Results
         res_map = df_temp.set_index("original_index").to_dict("index")
         for r in rows:
             if not r.get("is_duplicate") and r["original_index"] in res_map:
@@ -542,7 +549,7 @@ async def run_full_process_async(dossier, region, internet, brand, aliases, mode
         s.update(label="✅ Completado", state="complete")
 
 # ======================================
-# Funciones Análisis Rápido (Tab 2)
+# Funciones Análisis Rápido
 # ======================================
 async def run_quick_analysis(df, t_col, s_col, brand, aliases):
     df["txt"] = df[t_col].fillna("").astype(str) + ". " + df[s_col].fillna("").astype(str)
@@ -573,7 +580,6 @@ def main():
 
     tab1, tab2 = st.tabs(["Análisis Completo", "Análisis Rápido (IA)"])
 
-    # TAB 1: Completo
     with tab1:
         if not st.session_state.get("proc_complete", False):
             with st.form("input_form"):
@@ -591,7 +597,6 @@ def main():
                 mode = st.radio("Selecciona modo:", 
                                 ["Híbrido (PKL + API) (Recomendado)", "Solo Modelos PKL", "API de OpenAI"], index=0)
                 
-                # VISIBILIDAD CONDICIONAL DE PKL
                 pkl_tono, pkl_tema = None, None
                 if "PKL" in mode:
                     st.info("📂 Carga de Modelos PKL requerida para este modo")
@@ -607,11 +612,10 @@ def main():
                         asyncio.run(run_full_process_async(dossier, region, internet, brand, aliases, mode, pkl_tono, pkl_tema))
                         st.rerun()
         else:
-            # Resultados
             tot, unq, dur = st.session_state.metrics
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Noticias", tot)
-            c2.metric("Analizadas", unq)
+            c2.metric("Analizadas (Únicas)", unq)
             c3.metric("Duración", f"{dur:.1f}s")
             
             st.download_button("📥 **DESCARGAR INFORME**", st.session_state.output_data, st.session_state.fn, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
@@ -619,7 +623,6 @@ def main():
                 st.session_state.clear()
                 st.rerun()
 
-    # TAB 2: Rápido
     with tab2:
         st.header("Análisis Rápido")
         qf = st.file_uploader("Sube Excel", type=["xlsx"], key="qf")
@@ -643,7 +646,7 @@ def main():
                     st.download_button("Descargar", out.getvalue(), "Analisis_Rapido.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     st.dataframe(res.head())
 
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'>v6.0 | Powered by GPT-5 Logic</div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'>Desarrollado con 🤖 por Johnathan Cortés</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
