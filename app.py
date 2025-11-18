@@ -28,53 +28,42 @@ import gc
 # Configuracion general
 # ======================================
 st.set_page_config(
-    page_title="Análisis de Noticias con IA (Gen 3)",
-    page_icon="🧠",
+    page_title="Análisis de Noticias con IA",
+    page_icon="📰",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# ACTUALIZACIÓN: Uso del modelo más reciente para mayor capacidad de razonamiento semántico
+# CONFIGURACIÓN DE MODELOS (Actualizado a Generación 2025)
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
-OPENAI_MODEL_CLASIFICACION = "gpt-5-nano-2025-08-07" 
+OPENAI_MODEL_CLASIFICACION = "gpt-5-nano-2025-08-07"
 
-# Configuración de concurrencia y umbrales
-CONCURRENT_REQUESTS = 50 # Aumentado ligeramente para GPT-5-nano
+CONCURRENT_REQUESTS = 50
 SIMILARITY_THRESHOLD_TONO = 0.91
-SIMILARITY_THRESHOLD_TEMAS = 0.85 
-SIMILARITY_THRESHOLD_SUBTEMAS_AGRUPACION = 0.86 # Umbral para agrupar textos ANTES de generar subtema
+SIMILARITY_THRESHOLD_SUBTEMAS_AGRUPACION = 0.86 
+CONSOLIDATION_SEMANTIC_THRESHOLD = 0.82 # Umbral para unificar subtemas similares
 SIMILARITY_THRESHOLD_TITULOS = 0.95 
-
-# MEJORA: Umbral para la consolidación semántica de etiquetas (Reducción de subtemas)
-CONSOLIDATION_SEMANTIC_THRESHOLD = 0.82 
-
 MAX_TOKENS_PROMPT_TXT = 4000
-WINDOW_SENTENCES = 2 # Número de oraciones antes y después para el contexto
 
-# Datos geográficos para limpieza
-CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
-GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capitalino", "capitalinos", "capitalina", "capitalinas", "antioqueño", "antioqueños", "antioqueña", "antioqueñas", "paisa", "paisas", "medellense", "medellenses", "caleño", "caleños", "caleña", "caleñas", "valluno", "vallunos", "valluna", "vallunas", "vallecaucano", "vallecaucanos", "barranquillero", "barranquilleros", "cartagenero", "cartageneros", "costeño", "costeños", "costeña", "costeñas", "cucuteño", "cucuteños", "bumangués", "santandereano", "santandereanos", "boyacense", "boyacenses", "tolimense", "tolimenses", "huilense", "huilenses", "nariñense", "nariñenses", "pastuso", "pastusas", "cordobés", "cordobeses", "cauca", "caucano", "caucanos", "chocoano", "chocoanos", "casanareño", "casanareños", "caqueteño", "caqueteños", "guajiro", "guajiros", "llanero", "llaneros", "amazonense", "amazonenses", "colombiano", "colombianos", "colombiana", "colombianas"}
+# Listas de limpieza
 STOPWORDS_ES = set(""" a ante bajo cabe con contra de desde durante en entre hacia hasta mediante para por segun sin so sobre tras y o u e la el los las un una unos unas lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras este esta estos estas ese esa esos esas aquel aquella aquellos aquellas que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde cual es son fue fueron era eran sera seran seria serian he ha han habia habian hay hubo habra habria estoy esta estan estaba estaban estamos estan estar estare estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada """.split())
 
 # ======================================
-# Estilos CSS Modernos
+# Estilos CSS (Modernizados pero fieles al original)
 # ======================================
 def load_custom_css():
     st.markdown(
         """
         <style>
-        :root { --primary-color: #2563eb; --secondary-color: #10b981; --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); --card-bg: #ffffff; --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); --radius: 1rem; }
-        .stApp { background: var(--bg-gradient); }
-        .main-header { background: linear-gradient(90deg, var(--primary-color), #1e40af); -webkit-background-clip: text; -webkit-text-fill-color: transparent; padding: 1.5rem 0; text-align: center; font-size: 3rem; font-weight: 900; letter-spacing: -0.05em; }
-        .subtitle { text-align: center; color: #64748b; font-size: 1.2rem; font-weight: 500; margin-bottom: 2rem; }
-        .metric-container { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 2rem; }
-        .metric-card { background: var(--card-bg); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--shadow); text-align: center; min-width: 160px; border: 1px solid #f1f5f9; transition: transform 0.2s; }
-        .metric-card:hover { transform: translateY(-2px); }
-        .metric-value { font-size: 2.5rem; font-weight: 800; color: #0f172a; line-height: 1; }
-        .metric-label { font-size: 0.875rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.5rem; }
-        .stButton > button { border-radius: 0.75rem; font-weight: 600; padding: 0.5rem 1rem; transition: all 0.2s; }
-        .stButton > button:hover { box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2); }
-        div[data-testid="stStatusWidget"] { border-radius: var(--radius); }
+        :root { --primary-color: #1f77b4; --secondary-color: #2ca02c; --card-bg: #ffffff; --shadow-light: 0 4px 6px rgba(0,0,0,0.1); --border-radius: 12px; }
+        .main-header { background: linear-gradient(135deg, var(--primary-color) 0%, #0d47a1 100%); color: white; padding: 2rem; border-radius: var(--border-radius); text-align: center; font-size: 2.5rem; font-weight: 800; margin-bottom: 1.5rem; box-shadow: var(--shadow-light); }
+        .subtitle { text-align: center; color: #666; font-size: 1.1rem; margin: -1rem 0 2rem 0; }
+        .metric-card { background: var(--card-bg); padding: 1.2rem; border-radius: var(--border-radius); box-shadow: var(--shadow-light); text-align: center; border: 1px solid #e0e0e0; }
+        .metric-value { font-size: 2rem; font-weight: bold; color: var(--primary-color); }
+        .metric-label { font-size: 0.9rem; color: #666; text-transform: uppercase; }
+        .success-card { background: #f0fdf4; padding: 1.5rem; border-radius: var(--border-radius); border: 1px solid #22c55e; margin: 1rem 0; box-shadow: var(--shadow-light); }
+        .stButton > button { border-radius: 8px; font-weight: 600; height: 3rem; }
+        div[data-testid="stFileUploader"] { border: 1px dashed #ccc; border-radius: 10px; padding: 10px; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -85,17 +74,17 @@ def load_custom_css():
 # ======================================
 def check_password() -> bool:
     if st.session_state.get("password_correct", False): return True
-    st.markdown('<div class="main-header">🔐 Acceso Seguro Gemini-3</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">🔐 Portal de Acceso Seguro</div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("password_form"):
-            password = st.text_input("Contraseña:", type="password")
-            if st.form_submit_button("Desbloquear Sistema", use_container_width=True, type="primary"):
-                if password == st.secrets.get("APP_PASSWORD", "admin"):
+            password = st.text_input("🔑 Contraseña:", type="password")
+            if st.form_submit_button("🚀 Ingresar", use_container_width=True, type="primary"):
+                if password == st.secrets.get("APP_PASSWORD", "admin"): # Fallback para pruebas
                     st.session_state["password_correct"] = True
                     st.rerun()
                 else:
-                    st.error("❌ Credenciales inválidas")
+                    st.error("❌ Contraseña incorrecta")
     return False
 
 async def acall_with_retries(api_func, *args, **kwargs):
@@ -104,9 +93,7 @@ async def acall_with_retries(api_func, *args, **kwargs):
         try: return await api_func(*args, **kwargs)
         except Exception as e:
             if attempt == max_retries - 1: raise e
-            if "RateLimit" in str(e): await asyncio.sleep(delay * 2)
-            else: await asyncio.sleep(delay)
-            delay *= 1.5
+            await asyncio.sleep(delay); delay *= 1.5
 
 def call_with_retries(api_func, *args, **kwargs):
     max_retries = 3; delay = 1
@@ -119,10 +106,6 @@ def call_with_retries(api_func, *args, **kwargs):
 def norm_key(text: Any) -> str:
     if text is None: return ""
     return re.sub(r"[^a-z0-9]+", "", unidecode(str(text).strip().lower()))
-
-def clean_text_basic(text: str) -> str:
-    if not text: return ""
-    return re.sub(r'\s+', ' ', str(text)).strip()
 
 def extract_link(cell):
     if hasattr(cell, "hyperlink") and cell.hyperlink:
@@ -137,14 +120,14 @@ def normalizar_tipo_medio(tipo_raw: str) -> str:
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
-        "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
+        "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
         "revista": "Revista", "revistas": "Revista",
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
     }
     return mapping.get(t, str(tipo_raw).strip().title() if str(tipo_raw).strip() else "Otro")
 
-@st.cache_data(ttl=7200) # Cache extendido
+@st.cache_data(ttl=3600)
 def get_embedding(texto: str) -> Optional[List[float]]:
     if not texto or len(texto.split()) < 2: return None
     try:
@@ -152,19 +135,13 @@ def get_embedding(texto: str) -> Optional[List[float]]:
         return resp["data"][0]["embedding"]
     except Exception: return None
 
-# ======================================
-# Agrupación de Textos (Clustering)
-# ======================================
 def agrupar_textos_similares(textos: List[str], umbral_similitud: float) -> Dict[int, List[int]]:
-    """Agrupación semántica optimizada para grandes volúmenes"""
     if not textos: return {}
     embs = [get_embedding(t) for t in textos]
     valid_indices = [i for i, e in enumerate(embs) if e is not None]
     if len(valid_indices) < 2: return {0: valid_indices} if valid_indices else {}
     
     emb_matrix = np.array([embs[i] for i in valid_indices])
-    
-    # AgglomerativeClustering es más estable que DBSCAN para similitud coseno directa
     clustering = AgglomerativeClustering(
         n_clusters=None, 
         distance_threshold=1 - umbral_similitud, 
@@ -177,15 +154,9 @@ def agrupar_textos_similares(textos: List[str], umbral_similitud: float) -> Dict
     return {gid: g for gid, g in enumerate(grupos.values())}
 
 # ======================================
-# CLASIFICADOR DE TONO CONTEXTUAL V4 (GEMINI 3 EDITION)
+# LÓGICA V4: CLASIFICADOR DE TONO (Surgical Focus)
 # ======================================
 class ClasificadorTonoUltraV4:
-    """
-    Versión 4: Enfoque 'Surgical Brand Focus'.
-    Extrae oraciones completas en lugar de ventanas de caracteres.
-    Prioriza la estructura sintáctica para determinar si la marca es Sujeto u Objeto.
-    """
-    
     def __init__(self, marca: str, aliases: List[str]):
         self.marca = marca
         self.aliases = aliases or []
@@ -195,567 +166,484 @@ class ClasificadorTonoUltraV4:
         self.brand_pattern = re.compile(self.brand_regex_str, re.IGNORECASE)
 
     def _extract_brand_sentences(self, texto: str) -> List[str]:
-        """Extrae la oración donde está la marca + la anterior y la siguiente."""
+        """Extrae la oración exacta donde está la marca y su contexto inmediato."""
         if not texto: return []
-        # Dividir por oraciones de forma robusta
         sentences = re.split(r'(?<=[.!?])\s+', texto)
         indices_marca = [i for i, s in enumerate(sentences) if self.brand_pattern.search(unidecode(s.lower()))]
         
         contextos = []
-        processed_indices = set()
-        
+        processed = set()
         for idx in indices_marca:
-            start = max(0, idx - 1)
-            end = min(len(sentences), idx + 2)
-            
-            # Evitar duplicar segmentos si las menciones están muy cerca
+            start, end = max(0, idx - 1), min(len(sentences), idx + 2)
             rango = tuple(range(start, end))
-            if any(i in processed_indices for i in rango):
-                continue
-                
-            fragmento = " ".join(sentences[start:end])
-            contextos.append(fragmento)
-            processed_indices.update(rango)
+            if any(i in processed for i in rango): continue
+            contextos.append(" ".join(sentences[start:end]))
+            processed.update(rango)
             
-        if not contextos and texto: # Fallback si no se detecta (raro)
-            return [texto[:600]]
+        if not contextos and texto: return [texto[:600]]
         return contextos
 
     async def _llm_analisis_preciso(self, contextos: List[str]) -> Dict[str, str]:
         aliases_str = ", ".join(self.aliases) if self.aliases else "ninguno"
-        # Unimos contextos pero separados visualmente
-        texto_analisis = "\n\n--- FRAGMENTO ---\n".join(contextos[:3]) 
-
-        prompt = f"""Analiza el tono hacia la marca '{self.marca}' (alias: {aliases_str}) en los siguientes fragmentos.
+        txt_analisis = "\n\n--- FRAGMENTO ---\n".join(contextos[:3])
         
-REGLAS DE ORO (GPT-5 Logic):
-1. **Rol de la Marca:** ¿Es la marca el *Sujeto* activo de un logro (Positivo) o el *Objeto* de una sanción/crítica (Negativo)?
-2. **Contexto vs. Foco:** Si la noticia es mala (ej. "Sube el desempleo") pero la marca presenta una solución o ayuda, el tono para la marca es **Positivo**.
-3. **Neutro:** Si solo se menciona como referencia, dato financiero sin adjetivos, o participación pasiva en eventos estándar.
-4. **Crisis:** Si hay una crisis natural y la marca *responde* ayudando -> Positivo. Si la marca *causó* la crisis -> Negativo.
+        prompt = f"""Analiza el tono hacia la marca '{self.marca}' (alias: {aliases_str}).
+REGLAS ESTRICTAS:
+1. **Sujeto vs Objeto:** ¿La marca *logra* algo (Positivo) o es *criticada/sancionada* (Negativo)?
+2. **Contexto:** Si el mercado cae pero la marca crece -> Positivo.
+3. **Neutro:** Datos financieros planos, menciones corporativas estándar, o si la marca no es el foco principal.
+4. **Crisis:** Si la marca responde/ayuda -> Positivo. Si causó el daño -> Negativo.
 
 Fragmentos:
-{texto_analisis}
+{txt_analisis}
 
-Responde JSON: {{"tono": "Positivo|Negativo|Neutro", "razon": "Breve justificación en 1 frase"}}"""
+Responde JSON: {{"tono": "Positivo|Negativo|Neutro"}}"""
 
         try:
             resp = await acall_with_retries(
-                openai.ChatCompletion.acreate,
-                model=OPENAI_MODEL_CLASIFICACION,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=60,
-                temperature=0.0,
+                openai.ChatCompletion.acreate, model=OPENAI_MODEL_CLASIFICACION,
+                messages=[{"role": "user", "content": prompt}], max_tokens=40, temperature=0.0,
                 response_format={"type": "json_object"}
             )
             data = json.loads(resp.choices[0].message.content.strip())
             return {"tono": data.get("tono", "Neutro").title()}
-        except Exception:
-            return {"tono": "Neutro"}
+        except: return {"tono": "Neutro"}
 
     async def procesar_lote_async(self, textos_concat: pd.Series, progress_bar):
-        textos = textos_concat.tolist()
-        n = len(textos)
-        
-        # Clustering inicial para reducir llamadas a API (Misiles guiados)
-        progress_bar.progress(0.1, text="📡 Agrupando noticias idénticas para análisis...")
+        textos = textos_concat.tolist(); n = len(textos)
+        # Clustering inicial para eficiencia
         grupos = agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_TONO)
-        
-        # Mapa de representante -> lista de índices originales
-        mapa_grupos = {}
-        for gid, indices in grupos.items():
-            # Elegimos el texto más largo del grupo como representante (más contexto)
-            idx_rep = max(indices, key=lambda i: len(textos[i]))
-            mapa_grupos[textos[idx_rep]] = indices
+        mapa_grupos = {textos[max(idxs, key=lambda i: len(textos[i]))]: idxs for idxs in grupos.values()}
         
         semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS)
-        
-        async def worker(texto_rep):
+        async def worker(txt):
             async with semaphore:
-                contextos = self._extract_brand_sentences(texto_rep)
-                return await self._llm_analisis_preciso(contextos)
-
-        resultados_brutos = []
-        total_tasks = len(mapa_grupos)
+                return await self._llm_analisis_preciso(self._extract_brand_sentences(txt))
         
-        # Ejecución concurrente
         tasks = [worker(txt) for txt in mapa_grupos.keys()]
+        resultados_brutos = []
+        total = len(tasks)
+        
         for i, f in enumerate(asyncio.as_completed(tasks)):
             resultados_brutos.append(await f)
-            if i % 5 == 0:
-                progress_bar.progress(0.1 + 0.4 * (i / total_tasks), text=f"🧠 Analizando Tono: {i}/{total_tasks}")
-        
-        # Asignar resultados de vuelta
+            progress_bar.progress(0.1 + 0.4 * (i/total), f"🎯 Analizando Tono: {i}/{total}")
+            
         resultados_finales = [None] * n
-        keys = list(mapa_grupos.keys())
-        for i, res in enumerate(resultados_brutos):
-            indices = mapa_grupos[keys[i]]
-            for idx in indices:
-                resultados_finales[idx] = res
-        
+        for i, (rep, idxs) in enumerate(mapa_grupos.items()):
+            for idx in idxs: resultados_finales[idx] = resultados_brutos[i]
         return resultados_finales
 
 # ======================================
-# CLASIFICADOR DE SUBTEMA CON CONSOLIDACIÓN SEMÁNTICA V4
+# LÓGICA V4: CLASIFICADOR DE SUBTEMA CONSOLIDADO
 # ======================================
 class ClasificadorSubtemaV4:
-    """
-    Versión 4: Enfoque 'Semantic Map-Reduce'.
-    1. Genera subtemas específicos para grupos pequeños.
-    2. (NUEVO) Toma la lista de TODOS los subtemas generados.
-    3. (NUEVO) Clusteriza los *nombres* de los subtemas por significado.
-    4. (NUEVO) Pide al LLM que cree una etiqueta canónica para cada cluster de subtemas.
-    Resultado: Reducción masiva de duplicados semánticos ("Lanzamiento App" == "App Nueva") sin perder especificidad.
-    """
-    
     def __init__(self, marca: str, aliases: List[str]):
-        self.marca = marca
-        self.aliases = aliases
-        self.brand_context = f"Marca: {marca}. Alias: {', '.join(aliases) if aliases else 'N/A'}."
+        self.marca, self.aliases = marca, aliases
+        self.brand_context = f"Marca: {marca}. Alias: {', '.join(aliases)}."
 
-    def _limpiar_subtema_generado(self, texto: str) -> str:
-        t = texto.replace(self.marca, "").strip() # Quitar nombre marca
-        for a in self.aliases: 
-            if a: t = t.replace(a, "").strip()
-        t = re.sub(r"^(el|la|los|las|un|una|de|del|en)\s+", "", t, flags=re.IGNORECASE)
-        t = re.sub(r'[."]', '', t)
-        return t.capitalize() if t else "Actividad General"
-
-    async def _generar_subtema_batch(self, textos_representantes: List[str]) -> List[str]:
-        """Genera subtemas para varios textos en una sola llamada (Ahorro de tokens)"""
-        prompts_batch = []
-        for i, txt in enumerate(textos_representantes):
-            prompts_batch.append(f"Noticia {i+1}: {txt[:350]}")
-        
-        input_txt = "\n".join(prompts_batch)
+    async def _generar_subtema_batch(self, textos: List[str]) -> List[str]:
+        batch_txt = "\n".join([f"Noticia {i+1}: {t[:350]}" for i, t in enumerate(textos)])
         prompt = f"""{self.brand_context}
-Genera un SUBTEMA muy corto (2-4 palabras) y ESPECÍFICO para cada noticia.
-REGLAS:
-- NO usar el nombre de la marca.
-- NO usar palabras vagas como "Noticia", "Actualidad", "Informe".
-- Si es un resultado financiero, pon "Resultados Financieros".
-- Si es un nombramiento, pon "Nombramiento [Cargo]".
-
+Genera un SUBTEMA (2-5 palabras) ESPECÍFICO para cada noticia.
+REGLAS: NO uses el nombre de la marca. NO uses "Noticia de". Sé concreto (ej: "Lanzamiento App X", "Multa por Y").
 Input:
-{input_txt}
-
-Responde JSON: {{"items": ["Subtema 1", "Subtema 2", ...]}} ordenado igual que el input."""
-
+{batch_txt}
+Responde JSON: {{"items": ["Subtema 1", "Subtema 2"...]}}"""
         try:
-            resp = await acall_with_retries(
-                openai.ChatCompletion.acreate, 
-                model=OPENAI_MODEL_CLASIFICACION, 
-                messages=[{"role": "user", "content": prompt}], 
-                max_tokens=300, 
-                temperature=0.2,
-                response_format={"type": "json_object"}
-            )
-            data = json.loads(resp.choices[0].message.content)
-            return [self._limpiar_subtema_generado(s) for s in data.get("items", [])]
-        except:
-            return ["Tema General"] * len(textos_representantes)
+            r = await acall_with_retries(openai.ChatCompletion.acreate, model=OPENAI_MODEL_CLASIFICACION,
+                                         messages=[{"role": "user", "content": prompt}], max_tokens=300, temperature=0.2,
+                                         response_format={"type": "json_object"})
+            items = json.loads(r.choices[0].message.content).get("items", [])
+            # Limpieza básica
+            clean_items = []
+            for it in items:
+                c = it.replace(self.marca, "").strip().capitalize()
+                for a in self.aliases: c = c.replace(a, "").strip()
+                clean_items.append(c if c else "Actividad General")
+            return clean_items
+        except: return ["Tema General"] * len(textos)
 
-    async def _consolidar_semantica_llm(self, lista_subtemas_unicos: List[str]) -> Dict[str, str]:
-        """
-        La joya de la corona: Toma subtemas dispersos y los unifica semánticamente.
-        Ej: ["Apertura Tienda", "Inauguración Local", "Nueva Sede"] -> "Expansión de Sucursales"
-        """
-        if len(lista_subtemas_unicos) < 2: return {s: s for s in lista_subtemas_unicos}
-
-        # 1. Clusterizar los strings de subtemas usando embeddings
-        embeddings = [get_embedding(s) for s in lista_subtemas_unicos]
-        valid_idxs = [i for i, e in enumerate(embeddings) if e is not None]
-        if not valid_idxs: return {s: s for s in lista_subtemas_unicos}
+    async def _consolidar_semantica(self, subtemas: List[str]) -> Dict[str, str]:
+        """Agrupa subtemas semánticamente idénticos bajo un nombre canónico."""
+        if len(subtemas) < 2: return {s: s for s in subtemas}
+        embs = [get_embedding(s) for s in subtemas]
+        valid = [i for i, e in enumerate(embs) if e is not None]
+        if not valid: return {s: s for s in subtemas}
         
-        emb_matrix = np.array([embeddings[i] for i in valid_idxs])
+        matrix = np.array([embs[i] for i in valid])
+        # Clustering con umbral semántico
+        clust = AgglomerativeClustering(n_clusters=None, distance_threshold=1-CONSOLIDATION_SEMANTIC_THRESHOLD, metric="cosine", linkage="average").fit(matrix)
         
-        # Clustering agresivo para agrupar variaciones del mismo tema
-        clustering = AgglomerativeClustering(
-            n_clusters=None, 
-            distance_threshold=1 - CONSOLIDATION_SEMANTIC_THRESHOLD, # 0.82
-            metric="cosine", 
-            linkage="average"
-        ).fit(emb_matrix)
+        groups = defaultdict(list)
+        for i, lbl in enumerate(clust.labels_): groups[lbl].append(subtemas[valid[i]])
         
-        clusters = defaultdict(list)
-        for i, label in enumerate(clustering.labels_):
-            real_idx = valid_idxs[i]
-            clusters[label].append(lista_subtemas_unicos[real_idx])
-        
-        # 2. Preguntar al LLM el nombre canónico para cada cluster
-        mapa_final = {s: s for s in lista_subtemas_unicos} # Default: a sí mismo
-        
-        async def procesar_cluster(subtemas_grupo):
-            if len(subtemas_grupo) == 1: return subtemas_grupo[0], subtemas_grupo[0]
-            
-            prompt = f"""Unifica estos subtemas similares en UNO solo que sea representativo, breve y profesional.
-            Subtemas: {', '.join(subtemas_grupo)}
-            Responde JSON: {{"unificado": "..."}}"""
-            
+        mapa = {s: s for s in subtemas}
+        async def nombrar_cluster(g):
+            if len(g) == 1: return g, g[0]
+            p = f"Unifica estos temas en UNO solo breve y profesional: {', '.join(g)}. JSON: {{'nombre': '...'}}"
             try:
-                r = await acall_with_retries(
-                    openai.ChatCompletion.acreate,
-                    model=OPENAI_MODEL_CLASIFICACION,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=20,
-                    temperature=0.1,
-                    response_format={"type": "json_object"}
-                )
-                uni = json.loads(r.choices[0].message.content).get("unificado", subtemas_grupo[0])
-                return subtemas_grupo, uni
-            except:
-                return subtemas_grupo, subtemas_grupo[0]
+                r = await acall_with_retries(openai.ChatCompletion.acreate, model=OPENAI_MODEL_CLASIFICACION,
+                                             messages=[{"role": "user", "content": p}], max_tokens=20, temperature=0.1, response_format={"type":"json_object"})
+                return g, json.loads(r.choices[0].message.content).get("nombre", g[0])
+            except: return g, g[0]
+            
+        tasks = [nombrar_cluster(g) for g in groups.values()]
+        results = await asyncio.gather(*tasks)
+        for grp, nombre in results:
+            for s in grp: mapa[s] = nombre
+        return mapa
 
-        tasks = [procesar_cluster(grupo) for grupo in clusters.values()]
-        resultados = await asyncio.gather(*tasks)
+    def _generar_temas_macro(self, subtemas: List[str]) -> List[str]:
+        """Genera Tema principal agrupando los Subtemas consolidados."""
+        unicos = list(set(subtemas))
+        if not unicos: return subtemas
+        embs = [get_embedding(s) for s in unicos]
+        valid = [i for i, e in enumerate(embs) if e is not None]
+        if len(valid) < 2: return subtemas
         
-        for grupo_original, nombre_unificado in resultados:
-            if isinstance(grupo_original, list):
-                for sub in grupo_original:
-                    mapa_final[sub] = nombre_unificado
-            else:
-                mapa_final[grupo_original] = nombre_unificado
-                
-        return mapa_final
+        # Clustering más laxo para Temas generales
+        matrix = np.array([embs[i] for i in valid])
+        clust = AgglomerativeClustering(n_clusters=None, distance_threshold=0.35, metric="cosine", linkage="average").fit(matrix)
+        
+        mapa_tema = {}
+        temp_groups = defaultdict(list)
+        for i, lbl in enumerate(clust.labels_): temp_groups[lbl].append(unicos[valid[i]])
+        
+        for grp in temp_groups.values():
+            # El nombre del tema es el subtema más corto (heurística de generalidad) o procesado
+            nombre_tema = sorted(grp, key=len)[0].title()
+            if len(nombre_tema.split()) > 4: nombre_tema = "Actualidad Corporativa"
+            for s in grp: mapa_tema[s] = nombre_tema
+            
+        return [mapa_tema.get(s, s) for s in subtemas]
 
     async def procesar_completo(self, textos: List[str], p_bar):
-        n = len(textos)
+        # 1. Agrupar textos similares para no procesar todo (Ahorro API)
+        grupos = agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_SUBTEMAS_AGRUPACION)
+        reps = [textos[idxs[0]] for idxs in grupos.values()]
+        mapa_idxs = list(grupos.values())
         
-        # PASO 1: Agrupación inicial de noticias muy parecidas (Reduce llamadas)
-        p_bar.progress(0.5, "🧩 Agrupando noticias por similitud de contenido...")
-        grupos_noticias = agrupar_textos_similares(textos, SIMILARITY_THRESHOLD_SUBTEMAS_AGRUPACION)
-        
-        representantes = []
-        mapa_grupo_indices = {} # idx_rep -> [indices originales]
-        
-        for idxs in grupos_noticias.values():
-            rep_idx = idxs[0] # Tomamos el primero
-            representantes.append(textos[rep_idx])
-            mapa_grupo_indices[len(representantes)-1] = idxs
-
-        # PASO 2: Generación de Subtemas iniciales (Batch processing)
-        p_bar.progress(0.6, f"🏷️ Generando etiquetas para {len(representantes)} grupos...")
+        # 2. Generar Subtemas (Batches)
         subtemas_brutos = []
-        batch_size = 10 # Procesar de a 10 para no saturar contexto
-        
-        for i in range(0, len(representantes), batch_size):
-            batch = representantes[i:i+batch_size]
+        batch_size = 10
+        for i in range(0, len(reps), batch_size):
+            batch = reps[i:i+batch_size]
             res = await self._generar_subtema_batch(batch)
             subtemas_brutos.extend(res)
-        
-        # Asignar subtemas brutos a todas las noticias
-        subtemas_temp = [""] * n
+            p_bar.progress(0.5 + 0.3 * (i/len(reps)), f"🏷️ Generando etiquetas: {i}/{len(reps)}")
+            
+        # 3. Asignar a todos
+        todos_subtemas = [""] * len(textos)
         for i, sub in enumerate(subtemas_brutos):
-            indices_reales = mapa_grupo_indices[i]
-            for idx in indices_reales:
-                subtemas_temp[idx] = sub
-                
-        # PASO 3: Consolidación Semántica (Map-Reduce inteligente)
-        p_bar.progress(0.8, "🧠 Consolidando y normalizando subtemas (Fase Gemini)...")
+            for idx in mapa_idxs[i]: todos_subtemas[idx] = sub
+            
+        # 4. Consolidar Semánticamente (La magia V4)
+        p_bar.progress(0.9, "🧠 Consolidando semánticamente...")
         unicos = list(set(subtemas_brutos))
-        mapa_consolidacion = await self._consolidar_semantica_llm(unicos)
+        mapa_cons = await self._consolidar_semantica(unicos)
+        subtemas_finales = [mapa_cons.get(s, s) for s in todos_subtemas]
         
-        subtemas_finales = [mapa_consolidacion.get(st, st) for st in subtemas_temp]
-        
-        p_bar.progress(0.9, "✅ Generando Temas Principales...")
-        
-        # PASO 4: Derivar Tema Principal desde el Subtema consolidado (Simple lookup)
-        # Si ya están bien consolidados, el tema principal es fácil de inferir o agrupar
-        temas_finales = self._generar_temas_desde_subtemas(subtemas_finales)
+        # 5. Derivar Tema
+        temas_finales = self._generar_temas_macro(subtemas_finales)
         
         return subtemas_finales, temas_finales
 
-    def _generar_temas_desde_subtemas(self, subtemas: List[str]) -> List[str]:
-        # Agrupación simple final para TEMA (más general)
-        unicos = list(set(subtemas))
-        if not unicos: return subtemas
-        
-        # Clusterizar temas generales
-        embeddings = [get_embedding(s) for s in unicos]
-        valid = [i for i, e in enumerate(embeddings) if e is not None]
-        if len(valid) < 2: return subtemas
-        
-        matrix = np.array([embeddings[i] for i in valid])
-        clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=1 - 0.75, metric="cosine", linkage="average").fit(matrix)
-        
-        # Determinar nombre del cluster
-        mapa_tema = {}
-        for i, label in enumerate(clustering.labels_):
-            # Hack simple: el tema más corto suele ser el más general
-            # O podríamos llamar al LLM otra vez, pero por eficiencia usamos heurística
-            idx_real = valid[i]
-            st_actual = unicos[idx_real]
-            # Agrupamos temporalmente
-            if label not in mapa_tema: mapa_tema[label] = []
-            mapa_tema[label].append(st_actual)
-            
-        # Resolver nombres
-        mapa_final_tema = {}
-        for label, group in mapa_tema.items():
-            # Elegir el nombre más representativo (el centroide o el más corto)
-            # Aquí usamos el más corto como proxy de "Categoría"
-            tema_nombre = sorted(group, key=len)[0]
-            # Limpieza extra
-            if len(tema_nombre.split()) > 4: tema_nombre = "Actualidad Corporativa"
-            for item in group:
-                mapa_final_tema[item] = tema_nombre.title()
-                
-        return [mapa_final_tema.get(st, st) for st in subtemas]
+# ======================================
+# Lógica Legacy PKL (Si se selecciona)
+# ======================================
+def analizar_tono_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> List[Dict[str, str]]:
+    try:
+        pipeline = joblib.load(pkl_file)
+        pred = pipeline.predict(textos)
+        MAP = {1: "Positivo", "1": "Positivo", 0: "Neutro", "0": "Neutro", -1: "Negativo", "-1": "Negativo"}
+        return [{"tono": MAP.get(p, str(p))} for p in pred]
+    except Exception as e:
+        st.error(f"Error PKL Tono: {e}"); return [{"tono": "N/A"}] * len(textos)
+
+def analizar_temas_con_pkl(textos: List[str], pkl_file: io.BytesIO) -> List[str]:
+    try:
+        pipeline = joblib.load(pkl_file)
+        return [str(p) for p in pipeline.predict(textos)]
+    except Exception as e:
+        st.error(f"Error PKL Tema: {e}"); return ["N/A"] * len(textos)
 
 # ======================================
-# Lógica de Negocio y Excel
+# Procesamiento de Archivos y Excel
 # ======================================
-def procesar_excel(wb, df_region, df_internet):
-    sheet = wb.active
+def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
-    key_map = {norm_key(h): norm_key(h) for h in headers}
-    # Mapeos estándar
-    standard_keys = {
-        "titulo": "Titulo", "resumen": "Resumen - Aclaracion", 
-        "menciones": "Menciones - Empresa", "medio": "Medio", 
-        "idnoticia": "ID Noticia", "tipodemedio": "Tipo de Medio", 
-        "link_nota": "Link Nota", "link_streaming": "Link (Streaming - Imagen)"
-    }
-    for k, v in standard_keys.items():
-        key_map[k] = norm_key(v)
-
+    norm_keys = [norm_key(h) for h in headers]
+    key_map = {nk: nk for nk in norm_keys}
+    # Mapeos forzados para asegurar compatibilidad
+    standard = {"titulo":"Titulo","resumen":"Resumen - Aclaracion","menciones":"Menciones - Empresa","medio":"Medio","idnoticia":"ID Noticia","tipodemedio":"Tipo de Medio","link_nota":"Link Nota","link_streaming":"Link (Streaming - Imagen)","region":"Region"}
+    for k, v in standard.items(): key_map[k] = norm_key(v)
+    
     rows = []
     for row in sheet.iter_rows(min_row=2):
         if all(c.value is None for c in row): continue
-        r_data = {}
-        for i, h in enumerate(headers):
-            cell = row[i]
-            val = extract_link(cell) if norm_key(h) in [key_map["link_nota"], key_map["link_streaming"]] else cell.value
-            r_data[norm_key(h)] = val
-        rows.append(r_data)
-    
-    # Explosión de menciones y normalización
-    processed_rows = []
-    region_dict = dict(zip(df_region.iloc[:,0].astype(str).str.lower().str.strip(), df_region.iloc[:,1]))
-    internet_dict = dict(zip(df_internet.iloc[:,0].astype(str).str.lower().str.strip(), df_internet.iloc[:,1]))
+        r_d = {norm_keys[i]: c for i, c in enumerate(row) if i < len(norm_keys)}
+        rows.append(r_d)
 
-    for idx, r in enumerate(rows):
-        menciones = str(r.get(key_map["menciones"], "")).split(";")
-        medio_raw = str(r.get(key_map["medio"], "")).lower().strip()
+    processed, seen = [], {}
+    for idx, r_cells in enumerate(rows):
+        base = {k: extract_link(v) if k in [key_map["link_nota"], key_map["link_streaming"]] else v.value for k, v in r_cells.items()}
+        if key_map["tipodemedio"] in base:
+            base[key_map["tipodemedio"]] = normalizar_tipo_medio(base.get(key_map["tipodemedio"]))
         
-        base_row = r.copy()
-        base_row["original_index"] = idx
-        base_row[key_map["tipodemedio"]] = normalizar_tipo_medio(str(base_row.get(key_map["tipodemedio"])))
-        
-        # Mapeos
-        if medio_raw in internet_dict:
-            base_row[key_map["medio"]] = internet_dict[medio_raw]
-            base_row[key_map["tipodemedio"]] = "Internet"
-        
-        base_row["Region_Calc"] = region_dict.get(medio_raw, "N/A") # Columna interna
-
-        # Corrección Links
-        tm = base_row[key_map["tipodemedio"]]
-        ln = base_row.get(key_map["link_nota"])
-        ls = base_row.get(key_map["link_streaming"])
-        
-        if tm == "Internet" and isinstance(ls, dict) and ls.get("url"):
-            base_row[key_map["link_nota"]] = ls
-            base_row[key_map["link_streaming"]] = {"value": "", "url": None}
-        elif tm in ["Radio", "Televisión"]:
-            base_row[key_map["link_streaming"]] = {"value": "", "url": None}
-
+        menciones = str(base.get(key_map["menciones"], "")).split(";")
         for m in menciones:
             if not m.strip(): continue
-            new_r = base_row.copy()
-            new_r[key_map["menciones"]] = m.strip()
-            new_r["is_duplicate"] = False
-            processed_rows.append(new_r)
+            new = deepcopy(base)
+            new[key_map["menciones"]] = m.strip()
+            new["original_index"] = idx
+            new["is_duplicate"] = False
             
-    # Deduplicación simplificada (por URL/Titulo)
-    seen_keys = {}
-    for r in processed_rows:
-        # Clave única: ID Noticia + Mención
-        key = (str(r.get(key_map["idnoticia"])), r[key_map["menciones"]])
-        if key in seen_keys:
-            r["is_duplicate"] = True
-            r["idduplicada"] = seen_keys[key]
-        else:
-            seen_keys[key] = str(r.get(key_map["idnoticia"]))
+            # Duplicados simples (ID + Mención)
+            k_dup = (str(new.get(key_map["idnoticia"])), new[key_map["menciones"]])
+            if k_dup in seen:
+                new["is_duplicate"] = True
+                new["idduplicada"] = seen[k_dup]
+            else:
+                seen[k_dup] = str(new.get(key_map["idnoticia"]))
+            processed.append(new)
             
-    return processed_rows, key_map
+    return processed, key_map
 
-def generar_excel_final(rows, key_map):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Informe IA"
+def fix_links_and_region(rows, key_map, region_file, internet_file):
+    df_reg = pd.read_excel(region_file)
+    reg_map = dict(zip(df_reg.iloc[:,0].astype(str).str.lower().str.strip(), df_reg.iloc[:,1]))
+    df_int = pd.read_excel(internet_file)
+    int_map = dict(zip(df_int.iloc[:,0].astype(str).str.lower().str.strip(), df_int.iloc[:,1]))
     
-    cols_output = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono IA","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","ID duplicada"]
-    
-    # Estilos
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="4F81BD")
-    ws.append(cols_output)
-    for cell in ws[1]:
-        cell.font = header_font
-        cell.fill = header_fill
+    for r in rows:
+        med = str(r.get(key_map["medio"], "")).lower().strip()
+        r[key_map["region"]] = reg_map.get(med, "N/A")
+        if med in int_map:
+            r[key_map["medio"]] = int_map[med]
+            r[key_map["tipodemedio"]] = "Internet"
+            
+        # Link logic logic
+        tm = r.get(key_map["tipodemedio"])
+        ln, ls = key_map["link_nota"], key_map["link_streaming"]
+        link_n, link_s = r.get(ln), r.get(ls)
         
-    link_style = NamedStyle(name="Hyperlink", font=Font(color="0000FF", underline="single"))
+        if tm == "Internet" and isinstance(link_s, dict) and link_s.get("url"):
+            r[ln] = link_s
+            r[ls] = {"value": "", "url": None}
+        elif tm in ["Radio", "Televisión"]:
+            r[ls] = {"value": "", "url": None}
+
+def generate_output_excel(rows, key_map):
+    wb = Workbook(); ws = wb.active; ws.title = "Resultado"
+    headers = ["ID Noticia","Fecha","Hora","Medio","Tipo de Medio","Seccion - Programa","Region","Titulo","Autor - Conductor","Nro. Pagina","Dimension","Duracion - Nro. Caracteres","CPE","Tier","Audiencia","Tono","Tono IA","Tema","Subtema","Resumen - Aclaracion","Link Nota","Link (Streaming - Imagen)","Menciones - Empresa","ID duplicada"]
+    ws.append(headers)
+    
+    link_style = NamedStyle(name="Hyperlink_Custom", font=Font(color="0000FF", underline="single"))
     
     for r in rows:
         out_row = []
-        for col in cols_output:
-            if col == "Region": val = r.get("Region_Calc", "")
-            else:
-                nk = norm_key(col)
-                k = key_map.get(nk, nk)
-                val = r.get(k)
+        links = {}
+        for idx, h in enumerate(headers, 1):
+            nk = norm_key(h)
+            k = key_map.get(nk, nk)
+            val = r.get(k)
             
             if isinstance(val, dict) and "url" in val:
                 out_row.append(val.get("value", "Link"))
+                if val.get("url"): links[idx] = val["url"]
             else:
                 out_row.append(val)
-        
         ws.append(out_row)
-        
-        # Aplicar hipervínculos
-        curr_row = ws.max_row
-        for i, col in enumerate(cols_output):
-            nk = norm_key(col)
-            k = key_map.get(nk, nk)
-            val = r.get(k)
-            if isinstance(val, dict) and val.get("url"):
-                c = ws.cell(row=curr_row, column=i+1)
-                c.hyperlink = val["url"]
-                c.style = link_style
-
-    out = io.BytesIO()
-    wb.save(out)
-    return out.getvalue()
+        for col, url in links.items():
+            c = ws.cell(row=ws.max_row, column=col)
+            c.hyperlink = url
+            c.style = link_style
+            
+    out = io.BytesIO(); wb.save(out); return out.getvalue()
 
 # ======================================
-# Pipeline Principal
+# Pipeline Principal Async
 # ======================================
-async def run_pipeline(dossier_file, region_file, internet_file, marca, alias_list, mode, pkl_files=None):
-    start_t = time.time()
-    
-    # 1. Carga y Limpieza
-    with st.status("🛠️ Fase 1: Procesando Estructura...", expanded=True) as s:
-        wb = load_workbook(dossier_file, data_only=True)
-        df_reg = pd.read_excel(region_file)
-        df_int = pd.read_excel(internet_file)
-        rows, kmap = procesar_excel(wb, df_reg, df_int)
-        
-        df = pd.DataFrame(rows)
-        # Crear columna combinada para análisis
-        df["texto_full"] = df[kmap["titulo"]].fillna("").astype(str) + ". " + df[kmap["resumen"]].fillna("").astype(str)
-        
-        # Separar duplicados para no gastar API
-        df_analisis = df[~df["is_duplicate"]].copy()
-        s.update(label="✅ Estructura lista. Duplicados marcados.", state="complete")
+async def run_full_process_async(dossier, region, internet, brand, aliases, mode, tono_pkl, tema_pkl):
+    start = time.time()
+    if "API" in mode or "Híbrido" in mode:
+        try: openai.api_key = st.secrets["OPENAI_API_KEY"]
+        except: st.error("❌ Configurar OPENAI_API_KEY en Secrets."); st.stop()
 
-    # 2. Análisis IA
-    if "PKL" in mode and pkl_files:
-        # Lógica Legacy PKL (si se requiere)
-        pass 
-    
-    # Modo Híbrido o API (El potente)
-    if not df_analisis.empty:
-        # TONO
-        with st.status("🧠 Fase 2: Análisis de Tono (Motor GPT-5)", expanded=True) as s:
+    # 1. Carga
+    with st.status("📋 Paso 1/5: Limpieza y Duplicados", expanded=True) as s:
+        wb = load_workbook(dossier, data_only=True)
+        rows, kmap = run_dossier_logic(wb.active)
+        s.update(label="✅ Paso 1/5: Completado", state="complete")
+        
+    # 2. Mapeos
+    with st.status("🗺️ Paso 2/5: Mapeos y Normalización", expanded=True) as s:
+        fix_links_and_region(rows, kmap, region, internet)
+        s.update(label="✅ Paso 2/5: Completado", state="complete")
+
+    # Preparar datos para análisis
+    rows_to_analyze = [r for r in rows if not r.get("is_duplicate")]
+    if rows_to_analyze:
+        df_temp = pd.DataFrame(rows_to_analyze)
+        df_temp["txt_full"] = df_temp[kmap["titulo"]].fillna("").astype(str) + ". " + df_temp[kmap["resumen"]].fillna("").astype(str)
+        
+        # 3. Tono (V4)
+        with st.status("🎯 Paso 3/5: Análisis de Tono", expanded=True) as s:
             p_bar = st.progress(0)
-            cls_tono = ClasificadorTonoUltraV4(marca, alias_list)
-            res_tono = await cls_tono.procesar_lote_async(df_analisis["texto_full"], p_bar)
-            df_analisis["Tono IA"] = [r["tono"] for r in res_tono]
-            s.update(label="✅ Tono Analizado con precisión contextual.", state="complete")
+            if "PKL" in mode and tono_pkl:
+                res = analizar_tono_con_pkl(df_temp["txt_full"].tolist(), tono_pkl)
+            else:
+                cls_tono = ClasificadorTonoUltraV4(brand, aliases)
+                res = await cls_tono.procesar_lote_async(df_temp["txt_full"], p_bar)
             
-        # TEMA/SUBTEMA
-        if "Solo Modelos PKL" not in mode:
-            with st.status("🗂️ Fase 3: Clasificación y Consolidación Semántica", expanded=True) as s:
-                p_bar = st.progress(0)
-                cls_sub = ClasificadorSubtemaV4(marca, alias_list)
-                # Aquí ocurre la magia de la consolidación
-                subtemas, temas = await cls_sub.procesar_completo(df_analisis["texto_full"].tolist(), p_bar)
+            df_temp["Tono IA"] = [r["tono"] for r in res]
+            pos = sum(1 for r in res if r["tono"]=="Positivo")
+            neg = sum(1 for r in res if r["tono"]=="Negativo")
+            st.write(f"Resultados: 🟢 {pos} | 🔴 {neg}")
+            s.update(label="✅ Paso 3/5: Completado", state="complete")
+
+        # 4. Tema/Subtema (V4 Consolidado)
+        with st.status("🏷️ Paso 4/5: Temas y Subtemas", expanded=True) as s:
+            p_bar = st.progress(0)
+            if "Solo Modelos PKL" in mode and tema_pkl:
+                temas = analizar_temas_con_pkl(df_temp["txt_full"].tolist(), tema_pkl)
+                subtemas = ["N/A (PKL)"] * len(temas)
+            else:
+                # Aquí usamos la nueva lógica de consolidación semántica
+                cls_sub = ClasificadorSubtemaV4(brand, aliases)
+                subtemas, temas = await cls_sub.procesar_completo(df_temp["txt_full"].tolist(), p_bar)
                 
-                df_analisis["Subtema"] = subtemas
-                df_analisis["Tema"] = temas
-                s.update(label=f"✅ Clasificación completada. {len(set(subtemas))} subtemas únicos consolidados.", state="complete")
-    
-    # 3. Merge y Export
-    df_final = df.set_index("original_index")
-    df_analisis = df_analisis.set_index("original_index")
-    
-    df_final.update(df_analisis[["Tono IA", "Tema", "Subtema"]])
-    
-    # Rellenar duplicados con datos de la original
-    # (Simplificado: se marcan como Duplicada en el excel final por lógica de negocio)
-    final_rows = df_final.reset_index().to_dict("records")
-    for r in final_rows:
-        if r["is_duplicate"]:
-            r["Tono IA"] = "Duplicada"
-            r["Tema"] = "Duplicada"
-            r["Subtema"] = "Duplicada"
+            df_temp["Tema"] = temas
+            df_temp["Subtema"] = subtemas
+            st.write(f"Subtemas únicos: {len(set(subtemas))}")
+            s.update(label="✅ Paso 4/5: Completado", state="complete")
             
-    excel_bytes = generar_excel_final(final_rows, kmap)
-    
-    return excel_bytes, len(df), len(df_analisis), time.time() - start_t
+        # Merge
+        res_map = df_temp.set_index("original_index").to_dict("index")
+        for r in rows:
+            if not r.get("is_duplicate") and r["original_index"] in res_map:
+                match = res_map[r["original_index"]]
+                r[kmap.get("tonoiai", "tonoia")] = match["Tono IA"]
+                r[kmap.get("tema", "tema")] = match["Tema"]
+                r[kmap.get("subtema", "subtema")] = match["Subtema"]
+            elif r.get("is_duplicate"):
+                r[kmap.get("tonoiai", "tonoia")] = "Duplicada"
+                r[kmap.get("tema", "tema")] = "Duplicada"
+                r[kmap.get("subtema", "subtema")] = "Duplicada"
+
+    # 5. Generar
+    with st.status("📊 Paso 5/5: Generando Informe", expanded=True) as s:
+        out_data = generate_output_excel(rows, kmap)
+        st.session_state.update({
+            "output_data": out_data, "proc_complete": True,
+            "fn": f"Informe_IA_{brand.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+            "metrics": (len(rows), len(rows_to_analyze), time.time()-start)
+        })
+        s.update(label="✅ Completado", state="complete")
 
 # ======================================
-# Interfaz Streamlit
+# Funciones Análisis Rápido (Tab 2)
+# ======================================
+async def run_quick_analysis(df, t_col, s_col, brand, aliases):
+    df["txt"] = df[t_col].fillna("").astype(str) + ". " + df[s_col].fillna("").astype(str)
+    
+    with st.status("Analizando...", expanded=True):
+        st.write("Analizando Tono...")
+        ct = ClasificadorTonoUltraV4(brand, aliases)
+        tr = await ct.procesar_lote_async(df["txt"], st.progress(0))
+        df["Tono IA"] = [r["tono"] for r in tr]
+        
+        st.write("Analizando Temas...")
+        cs = ClasificadorSubtemaV4(brand, aliases)
+        sub, tem = await cs.procesar_completo(df["txt"].tolist(), st.progress(0))
+        df["Subtema"] = sub
+        df["Tema"] = tem
+        
+    return df.drop(columns=["txt"])
+
+# ======================================
+# Main UI
 # ======================================
 def main():
     load_custom_css()
     if not check_password(): return
 
-    st.markdown('<div class="main-header">Gemini 3 News Analytics</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Sistema de Clasificación Semántica Avanzada (Gen 5)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📰 Sistema de Análisis de Noticias con IA</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Análisis personalizable de Tono y Tema/Subtema</div>', unsafe_allow_html=True)
 
-    with st.container():
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.markdown("### 📂 Datos de Entrada")
-            f_dossier = st.file_uploader("Dossier (.xlsx)", type="xlsx")
-            f_region = st.file_uploader("Regiones (.xlsx)", type="xlsx")
-            f_internet = st.file_uploader("Fuentes Online (.xlsx)", type="xlsx")
-            
-        with col2:
-            st.markdown("### ⚙️ Configuración del Motor")
-            c_marca = st.text_input("Marca Principal", placeholder="Ej: Ecopetrol")
-            c_alias = st.text_area("Alias y Voceros (separar por ;)", placeholder="Ej: Ricardo Roa;Eco;Refinería", height=68)
-            mode = st.radio("Modo de Análisis", ["Full AI (GPT-5 Precision)", "Híbrido (PKL + AI)"], horizontal=True)
-            
-            btn_run = st.button("🚀 Ejecutar Análisis Profundo", type="primary", use_container_width=True)
+    tab1, tab2 = st.tabs(["Análisis Completo", "Análisis Rápido (IA)"])
 
-    if btn_run and f_dossier and f_region and f_internet and c_marca:
-        try:
-            # Configurar OpenAI
-            if "OPENAI_API_KEY" in st.secrets:
-                openai.api_key = st.secrets["OPENAI_API_KEY"]
-            else:
-                st.error("Falta la API Key de OpenAI en Secrets")
-                st.stop()
+    # TAB 1: Completo
+    with tab1:
+        if not st.session_state.get("proc_complete", False):
+            with st.form("input_form"):
+                st.markdown("### 📂 Archivos de Entrada Obligatorios")
+                c1, c2, c3 = st.columns(3)
+                dossier = c1.file_uploader("**1. Dossier** (.xlsx)", type=["xlsx"])
+                region = c2.file_uploader("**2. Región** (.xlsx)", type=["xlsx"])
+                internet = c3.file_uploader("**3. Internet** (.xlsx)", type=["xlsx"])
                 
-            aliases = [a.strip() for a in c_alias.split(";") if a.strip()]
+                st.markdown("### 🏢 Configuración")
+                brand = st.text_input("Marca Principal", placeholder="Ej: Bancolombia")
+                aliases_txt = st.text_area("Alias (separados por ;)", placeholder="Ej: Ban;Juan Carlos Mora")
+                
+                st.markdown("### ⚙️ Modo de Análisis")
+                mode = st.radio("Selecciona modo:", 
+                                ["Híbrido (PKL + API) (Recomendado)", "Solo Modelos PKL", "API de OpenAI"], index=0)
+                
+                # VISIBILIDAD CONDICIONAL DE PKL
+                pkl_tono, pkl_tema = None, None
+                if "PKL" in mode:
+                    st.info("📂 Carga de Modelos PKL requerida para este modo")
+                    cp1, cp2 = st.columns(2)
+                    pkl_tono = cp1.file_uploader("Modelo Tono (.pkl)", type=["pkl"])
+                    pkl_tema = cp2.file_uploader("Modelo Tema (.pkl)", type=["pkl"])
+
+                if st.form_submit_button("🚀 **INICIAR ANÁLISIS COMPLETO**", use_container_width=True, type="primary"):
+                    if not all([dossier, region, internet, brand]):
+                        st.error("❌ Faltan archivos o marca.")
+                    else:
+                        aliases = [a.strip() for a in aliases_txt.split(";") if a.strip()]
+                        asyncio.run(run_full_process_async(dossier, region, internet, brand, aliases, mode, pkl_tono, pkl_tema))
+                        st.rerun()
+        else:
+            # Resultados
+            tot, unq, dur = st.session_state.metrics
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Noticias", tot)
+            c2.metric("Analizadas", unq)
+            c3.metric("Duración", f"{dur:.1f}s")
             
-            # Ejecutar Async
-            result_data, total, unicas, tiempo = asyncio.run(run_pipeline(
-                f_dossier, f_region, f_internet, c_marca, aliases, mode
-            ))
+            st.download_button("📥 **DESCARGAR INFORME**", st.session_state.output_data, st.session_state.fn, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+            if st.button("🔄 Nuevo Análisis"):
+                st.session_state.clear()
+                st.rerun()
+
+    # TAB 2: Rápido
+    with tab2:
+        st.header("Análisis Rápido")
+        qf = st.file_uploader("Sube Excel", type=["xlsx"], key="qf")
+        if qf:
+            df = pd.read_excel(qf)
+            c1, c2 = st.columns(2)
+            tc = c1.selectbox("Columna Título", df.columns)
+            sc = c2.selectbox("Columna Resumen", df.columns)
             
-            st.markdown("---")
-            st.success("🎉 Análisis Completado")
+            qb = st.text_input("Marca", key="qb")
+            qa = st.text_input("Alias (;)", key="qa")
             
-            mc1, mc2, mc3 = st.columns(3)
-            mc1.markdown(f'<div class="metric-card"><div class="metric-value">{total}</div><div class="metric-label">Noticias Totales</div></div>', unsafe_allow_html=True)
-            mc2.markdown(f'<div class="metric-card"><div class="metric-value">{unicas}</div><div class="metric-label">Analizadas (Únicas)</div></div>', unsafe_allow_html=True)
-            mc3.markdown(f'<div class="metric-card"><div class="metric-value">{int(tiempo)}s</div><div class="metric-label">Tiempo Ejecución</div></div>', unsafe_allow_html=True)
-            
-            st.download_button(
-                label="📥 Descargar Informe Mejorado",
-                data=result_data,
-                file_name=f"Informe_Gemini3_{c_marca}_{datetime.date.today()}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-            
-        except Exception as e:
-            st.error(f"Error crítico: {str(e)}")
-            st.exception(e)
+            if st.button("Analizar con IA"):
+                if not qb: st.error("Falta Marca")
+                else:
+                    als = [x.strip() for x in qa.split(";") if x.strip()]
+                    res = asyncio.run(run_quick_analysis(df.copy(), tc, sc, qb, als))
+                    
+                    out = io.BytesIO()
+                    res.to_excel(out, index=False)
+                    st.download_button("Descargar", out.getvalue(), "Analisis_Rapido.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    st.dataframe(res.head())
+
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'>v6.0 | Powered by GPT-5 Logic</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
