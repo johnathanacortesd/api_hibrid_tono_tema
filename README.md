@@ -2,7 +2,7 @@
 
 Una aplicación web construida por Johnathan Cortés con **Streamlit** para el procesamiento, limpieza y clasificación avanzada de dossieres de noticias utilizando **Inteligencia Artificial (OpenAI)** y modelos de **Machine Learning** personalizados.
 
-<img width="1806" height="888" alt="image" src="https://github.com/user-attachments/assets/89a91e00-e75b-4846-8a42-2dbdfebe331d" />
+<img width="1817" height="785" alt="image" src="https://github.com/user-attachments/assets/f6095f3c-0bfe-4441-8061-5b2171ed693d" />
 
 [![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
