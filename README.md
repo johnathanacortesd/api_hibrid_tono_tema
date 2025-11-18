@@ -4,35 +4,33 @@ Una aplicación web construida por Johnathan Cortés con **Streamlit** para el p
 
 [![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
-<img width="1806" height="888" alt="image" src="https://github.com/user-attachments/assets/89a91e00-e75b-4846-8a42-2dbdfebe331d" />
-
-
 ## 📜 Descripción General
 
 Este proyecto proporciona una solución integral para analistas de medios y comunicadores que necesitan procesar grandes volúmenes de noticias (dossieres). La aplicación automatiza tareas tediosas y complejas como la detección de duplicados, la normalización de datos y, lo más importante, el **análisis de sentimiento (Tono)** y la **clasificación temática (Tema y Subtema)** de cada artículo.
 
 Ofrece una interfaz amigable con dos flujos de trabajo principales:
-1.  **Análisis Completo:** Un proceso robusto diseñado para el formato estándar de dossieres, que incluye limpieza, mapeo de datos, deduplicación y análisis profundo.
-2.  **Análisis Rápido:** Una herramienta flexible para analizar rápidamente cualquier archivo Excel que contenga títulos y resúmenes, sin necesidad de una estructura de dossier fija.
+1.  **Análisis Completo:** Un proceso robusto diseñado para el formato estándar de dossieres, que incluye limpieza, mapeo de datos, deduplicación y análisis profundo con múltiples modos de ejecución.
+2.  **Análisis Rápido:** Una herramienta flexible para analizar rápidamente cualquier archivo Excel que contenga títulos y resúmenes, utilizando la potencia de la IA sin necesidad de una estructura de dossier fija.
 
 ## ✨ Características Principales
 
 ### 🧠 Análisis Inteligente
--   **Análisis de Tono (Sentimiento):** Clasifica cada noticia como *Positiva*, *Negativa* o *Neutra* en relación con una marca específica, utilizando un modelo híbrido de reglas, embeddings y el poder de la API de OpenAI (GPT-4.1-Nano).
--   **Clasificación Temática Dinámica:**
-    -   **Subtemas:** La IA genera subtemas específicos y detallados (2-6 palabras) para grupos de noticias similares, eliminando el ruido (nombres de marca, ciudades).
-    -   **Temas Principales:** Consolida automáticamente los subtemas en un número manejable de temas principales, utilizando clustering de embeddings y la capacidad de síntesis de la IA para nombrarlos de forma coherente.
--   **Detección Avanzada de Duplicados:** Identifica noticias duplicadas con alta precisión mediante una combinación de:
-    -   🔗 Coincidencia de URL (para medios online).
-    -   ✍️ Similitud de títulos normalizados (para noticias de agencia replicadas).
-    -   ⏰ Coincidencia de Mención + Medio + Hora (para Radio y TV).
+-   **Análisis de Tono Contextual (Sentimiento):** Clasifica cada noticia como *Positiva*, *Negativa* o *Neutra* en relación directa con la marca analizada. Utiliza un modelo híbrido avanzado que primero aplica reglas contextuales y luego, si es necesario, emplea el poder de la API de OpenAI (`gpt-4.1-nano`) para una clasificación precisa.
+-   **Clasificación Temática Dinámica y Consolidada:**
+    -   **Subtemas Específicos:** La IA genera subtemas detallados (3-5 palabras) para grupos de noticias similares, filtrando automáticamente el ruido (nombres de marca, ciudades, gentilicios) para mayor claridad.
+    -   **Consolidación Inteligente de Subtemas:** Utiliza embeddings para identificar y unificar subtemas semánticamente idénticos (ej. "Apertura de nueva tienda" y "Inauguración de sucursal"), garantizando la consistencia del informe.
+    -   **Temas Principales Sintetizados:** Consolida automáticamente los subtemas en un número manejable de temas principales, utilizando clustering y la capacidad de síntesis de la IA para nombrarlos de forma coherente y ejecutiva.
+-   **Detección Avanzada de Duplicados:** Identifica noticias duplicadas con alta precisión mediante una combinación de tres métodos:
+    -   🔗 **Coincidencia de URL** (para medios online).
+    -   ✍️ **Similitud de Títulos Normalizados** (para noticias de agencia replicadas en diferentes medios).
+    -   ⏰ **Mención + Medio + Hora** (para Radio y TV).
 -   **Agrupación Eficiente:** Utiliza embeddings vectoriales (`text-embedding-3-small`) y clustering aglomerativo para agrupar noticias semánticamente similares, optimizando las llamadas a la API y mejorando la consistencia del análisis.
 
 ### ⚙️ Flexibilidad y Personalización
 -   **Múltiples Modos de Análisis (en Análisis Completo):**
-    1.  **🤖 API de OpenAI (Recomendado):** Utiliza la IA para todas las tareas de clasificación (Tono, Tema, Subtema). No requiere modelos pre-entrenados.
-    2.  **🧩 Híbrido (PKL + API):** Permite usar tus propios modelos `.pkl` para Tono y/o Tema, mientras la IA se encarga de generar los Subtemas.
-    3.  **📦 Solo Modelos PKL:** Ejecuta el análisis de Tono y Tema exclusivamente con tus modelos locales, ideal para operar sin conexión o sin costos de API (el análisis de Subtema se omite).
+    1.  **🤖 API de OpenAI:** Utiliza la IA para todas las tareas de clasificación (Tono, Tema, Subtema). Es la opción más potente y no requiere modelos pre-entrenados.
+    2.  **🧩 Híbrido (PKL + API) (Recomendado):** Permite usar tus propios modelos `.pkl` para Tono y/o Tema. Si no se proporciona un modelo, la IA se encarga de esa tarea. La generación de Subtemas siempre utiliza la API para máxima especificidad.
+    3.  **📦 Solo Modelos PKL:** Ejecuta el análisis de Tono y Tema exclusivamente con tus modelos locales. Ideal para operar sin conexión o sin costos de API (el análisis de Subtema se omite en este modo).
 -   **Mapeo y Normalización de Datos:** Limpia y estandariza datos clave como "Tipo de Medio" y enriquece las noticias con información de "Región" a partir de archivos de mapeo Excel.
 -   **Manejo de Alias y Voceros:** El análisis se centra en la marca principal y en una lista configurable de alias, filiales o voceros importantes.
 
@@ -40,8 +38,9 @@ Ofrece una interfaz amigable con dos flujos de trabajo principales:
 -   **Interfaz Web Intuitiva:** Construida con Streamlit para una experiencia de usuario sencilla y directa.
 -   **Seguridad:** 🔑 Acceso protegido por contraseña.
 -   **Dos Pestañas, Dos Usos:**
-    -   **Análisis Completo:** Guiado paso a paso para procesar dossieres formales.
-    -   **Análisis Rápido:** Herramienta ágil para análisis exploratorios sobre cualquier Excel.
+    -   **Análisis Completo:** Guiado paso a paso para procesar dossieres formales, con opciones de personalización avanzadas.
+    -   **Análisis Rápido (IA):** Herramienta ágil para análisis exploratorios sobre cualquier archivo Excel.
+-   **Post-procesamiento Interactivo:** Incluye una función para **refinar y consolidar los subtemas** del resultado final con un solo clic, aplicando la lógica de consolidación inteligente para mejorar aún más la calidad del informe.
 -   **Reporte Final:** Genera un archivo Excel (`.xlsx`) limpio y formateado con todas las clasificaciones, listo para ser utilizado en informes y dashboards.
 
 ## 🛠️ Stack Tecnológico
@@ -114,17 +113,17 @@ streamlit run app.py
 
 1.  **📂 Carga los archivos obligatorios:**
     -   `Dossier Principal (.xlsx)`: El archivo con las noticias a analizar.
-    -   `Mapeo de Región (.xlsx)`: Un Excel con dos columnas (Medio | Región) para asignar regiones.
-    -   `Mapeo Internet (.xlsx)`: Un Excel con dos columnas (URL de medio | Nombre oficial del medio) para normalizar medios online.
+    -   `Mapeo de Región (.xlsx)`: Un Excel con dos columnas (Medio | Región).
+    -   `Mapeo Internet (.xlsx)`: Un Excel con dos columnas (URL de medio | Nombre oficial del medio).
 2.  **🏢 Configura la marca:**
     -   **Marca Principal:** El nombre de la empresa, producto o entidad a analizar.
     -   **Alias y voceros:** Nombres alternativos, filiales o personas clave (separados por `;`).
 3.  **⚙️ Elige el Modo de Análisis:**
-    -   **API de OpenAI:** La opción por defecto y más potente.
-    -   **Híbrido:** Si quieres usar tus modelos `.pkl` para Tono/Tema. Aparecerán los campos para subirlos.
+    -   **API de OpenAI:** La opción más potente. Usa la IA para todas las tareas.
+    -   **Híbrido (PKL + API):** Si quieres usar tus modelos `.pkl` para Tono/Tema. Aparecerán los campos para subirlos. Si no subes un modelo, la IA se encargará de esa parte.
     -   **Solo Modelos PKL:** Si quieres un análisis offline sin Subtemas. Deberás subir ambos archivos `.pkl`.
 4.  **🚀 Inicia el análisis** y espera a que el proceso de 5 pasos se complete.
-5.  **📥 Descarga el informe** en formato Excel.
+5.  **📥 Descarga el informe** o usa el botón **"Refinar y Consolidar Subtemas"** para mejorar aún más el resultado antes de descargar.
 
 ### Análisis Rápido (IA)
 
