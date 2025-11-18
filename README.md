@@ -6,7 +6,7 @@ Una aplicación web construida por Johnathan Cortés con **Streamlit** para el p
 
 [![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
-## Entrenador [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1oe9ThUGIkGA5_QQzycErE2R530MchcFC#scrollTo=QPhTBAzd_xas)
+# 🔧 Entrenador [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1oe9ThUGIkGA5_QQzycErE2R530MchcFC#scrollTo=QPhTBAzd_xas)
 
 
 ## 📜 Descripción General
