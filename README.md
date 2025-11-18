@@ -18,7 +18,7 @@ Ofrece una interfaz amigable con dos flujos de trabajo principales:
 ## ✨ Características Principales
 
 ### 🧠 Análisis Inteligente
--   **Análisis de Tono (Sentimiento):** Clasifica cada noticia como *Positiva*, *Negativa* o *Neutra* en relación con una marca específica, utilizando un modelo híbrido de reglas, embeddings y el poder de la API de OpenAI (GPT-4-Nano).
+-   **Análisis de Tono (Sentimiento):** Clasifica cada noticia como *Positiva*, *Negativa* o *Neutra* en relación con una marca específica, utilizando un modelo híbrido de reglas, embeddings y el poder de la API de OpenAI (GPT-4.1-Nano).
 -   **Clasificación Temática Dinámica:**
     -   **Subtemas:** La IA genera subtemas específicos y detallados (2-6 palabras) para grupos de noticias similares, eliminando el ruido (nombres de marca, ciudades).
     -   **Temas Principales:** Consolida automáticamente los subtemas en un número manejable de temas principales, utilizando clustering de embeddings y la capacidad de síntesis de la IA para nombrarlos de forma coherente.
