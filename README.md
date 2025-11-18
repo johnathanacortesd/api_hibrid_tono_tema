@@ -1,3 +1,5 @@
+---
+
 # 📰 Sistema de Análisis de Noticias con IA
 
 Una aplicación web construida por Johnathan Cortés con **Streamlit** para el procesamiento, limpieza y clasificación avanzada de dossieres de noticias utilizando **Inteligencia Artificial (OpenAI)** y modelos de **Machine Learning** personalizados.
@@ -5,9 +7,6 @@ Una aplicación web construida por Johnathan Cortés con **Streamlit** para el p
 <img width="1817" height="785" alt="image" src="https://github.com/user-attachments/assets/f6095f3c-0bfe-4441-8061-5b2171ed693d" />
 
 [![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
-
-# 🔧 Entrenador [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1oe9ThUGIkGA5_QQzycErE2R530MchcFC#scrollTo=QPhTBAzd_xas)
-
 
 ## 📜 Descripción General
 
@@ -144,6 +143,33 @@ Si eliges usar los modos "Híbrido" o "Solo Modelos PKL", tus modelos deben cump
 
 -   **`pipeline_sentimiento.pkl`**: Debe ser un objeto compatible con Scikit-learn (como un `Pipeline`) que implemente un método `.predict()`. La salida de este método debe ser `1` para *Positivo*, `0` para *Neutro* y `-1` para *Negativo*.
 -   **`pipeline_tema.pkl`**: Debe ser un objeto similar que implemente `.predict()`. La salida debe ser una cadena de texto (`string`) con el nombre del tema clasificado.
+
+## 🏋️‍♂️ Entrenador de Modelos Personalizados (.pkl)
+
+[![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1oe9ThUGIkGA5_QQzycErE2R530MchcFC#scrollTo=QPhTBAzd_xas)
+
+Para aprovechar al máximo los modos **Híbrido (PKL + API)** y **Solo Modelos PKL**, puedes entrenar tus propios modelos de clasificación de Tono y Tema. Hemos creado un notebook de Google Colab que simplifica este proceso en dos fases principales: preparación de datos y entrenamiento.
+
+### Fase 1: Preparación de Datos (Concatenador Inteligente)
+
+El primer paso para un buen modelo es tener datos de alta calidad. El notebook incluye una herramienta interactiva para unificar tus datasets de entrenamiento:
+
+1.  **Carga Múltiple:** Sube todos tus archivos Excel (`.xlsx`) que contengan datos de entrenamiento, sin importar si tienen nombres de columna diferentes.
+2.  **Mapeo Interactivo:** Para cada archivo, la herramienta te mostrará una vista previa y te permitirá asignar tus columnas a los campos estándar: `TÍTULO`, `RESUMEN`, `TONO` y `TEMA`.
+3.  **Unificación Automática:** El script concatenará todos los archivos mapeados en un único dataset limpio (`archivo_unificado.xlsx`), combinando `TÍTULO` y `RESUMEN` en una sola columna de texto y estandarizando las columnas de `TONO` y `TEMA`.
+4.  **Opción de Omitir:** Si subes un archivo por error o no es relevante, puedes omitirlo fácilmente durante el proceso de mapeo.
+
+### Fase 2: Entrenamiento de Modelos de Clasificación
+
+Una vez que tienes tu `archivo_unificado.xlsx`, la segunda parte del notebook se encarga del entrenamiento:
+
+1.  **Carga del Dataset:** Sube el archivo unificado generado en la fase anterior.
+2.  **Preprocesamiento Automático:** El texto de la columna `resumen` se limpia y normaliza automáticamente (minúsculas, eliminación de stopwords, caracteres especiales, etc.) para optimizar el rendimiento del modelo.
+3.  **Selección de Entrenamiento:** Puedes elegir entrenar solo el modelo de **Sentimiento (Tono)**, solo el de **Tema**, o **ambos** a la vez.
+4.  **Entrenamiento y Selección del Mejor Modelo:** El script entrena y evalúa varios algoritmos de Machine Learning (como Logistic Regression, LinearSVC, RandomForest) para cada tarea. Automáticamente selecciona el modelo con el mejor rendimiento (`accuracy`) y lo prepara para la exportación.
+5.  **Descarga Final:** Al finalizar, el notebook guardará los modelos finales como `pipeline_sentimiento.pkl` y `pipeline_tema.pkl` y activará su descarga a tu ordenador.
+
+Estos archivos `.pkl` están listos para ser utilizados directamente en la aplicación Streamlit, dándote el poder de clasificar noticias con modelos entrenados específicamente para tus datos y tu contexto.
 
 ---
 <div align="center">
