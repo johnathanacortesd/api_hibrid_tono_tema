@@ -46,11 +46,11 @@ SIMILARITY_THRESHOLD_TITULOS = 0.95
 MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 150 
 
-# Configuración de agrupación (Más agresiva para reducir temas)
-NUM_TEMAS_PRINCIPALES = 15  # Reducido para forzar generalización
-UMBRAL_FUSION_CONTENIDO = 0.85 # Si el contenido (titulo+resumen) es 85% similar, fusionar temas
+# Configuración de agrupación
+NUM_TEMAS_PRINCIPALES = 15  
+UMBRAL_FUSION_CONTENIDO = 0.85 
 
-# Listas Geográficas
+# Listas Geográficas (Abreviadas)
 CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
 GENTILICIOS_COLOMBIA = {"bogotano", "bogotanos", "bogotana", "bogotanas", "capitalino", "capitalinos", "capitalina", "capitalinas", "antioqueño", "antioqueños", "antioqueña", "antioqueñas", "paisa", "paisas", "medellense", "medellenses", "caleño", "caleños", "caleña", "caleñas", "valluno", "vallunos", "valluna", "vallunas", "vallecaucano", "vallecaucanos", "barranquillero", "barranquilleros", "cartagenero", "cartageneros", "costeño", "costeños", "costeña", "costeñas", "cucuteño", "cucuteños", "bumangués", "santandereano", "santandereanos", "boyacense", "boyacenses", "tolimense", "tolimenses", "huilense", "huilenses", "nariñense", "nariñenses", "pastuso", "pastusas", "cordobés", "cordobeses", "cauca", "caucano", "caucanos", "chocoano", "chocoanos", "casanareño", "casanareños", "caqueteño", "caqueteños", "guajiro", "guajiros", "llanero", "llaneros", "amazonense", "amazonenses", "colombiano", "colombianos", "colombiana", "colombianas"}
 
@@ -190,7 +190,7 @@ def normalizar_tipo_medio(tipo_raw: str) -> str:
     t = unidecode(tipo_raw.strip().lower())
     mapping = {
         "fm": "Radio", "am": "Radio", "radio": "Radio",
-        "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
+        "aire": "Televisión", "cable": "Televisión", "tv": "Televisión", "television": "Televisión", "televisión": "Televisión", "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
         "revista": "Revista", "revistas": "Revista",
         "online": "Internet", "internet": "Internet", "digital": "Internet", "web": "Internet"
@@ -457,24 +457,16 @@ class ClasificadorSubtemaV3:
         except: return "Actividad Corporativa"
 
     def _fusionar_grupos_por_contenido(self, etiquetas: List[str], textos: List[str]) -> List[str]:
-        """
-        Función crítica: Fusiona etiquetas si el contenido promedio (Embeddings de Títulos/Resúmenes)
-        de las noticias bajo esas etiquetas es muy similar.
-        """
         df_temp = pd.DataFrame({'label': etiquetas, 'text': textos})
         unique_labels = df_temp['label'].unique()
         if len(unique_labels) < 2: return etiquetas
 
-        # 1. Calcular el vector centroide para cada etiqueta existente
-        # Primero, obtenemos embeddings de todos los textos
         todos_embs = get_embeddings_batch(textos)
-        
         label_centroids = {}
         valid_labels = []
         
         for label in unique_labels:
             indices = df_temp.index[df_temp['label'] == label].tolist()
-            # Tomamos una muestra para no sobrecargar
             indices_muestra = indices[:50] 
             vectors = [todos_embs[i] for i in indices_muestra if todos_embs[i] is not None]
             
@@ -485,12 +477,9 @@ class ClasificadorSubtemaV3:
 
         if len(valid_labels) < 2: return etiquetas
 
-        # 2. Matriz de similitud entre centroides de etiquetas
         matrix = np.array([label_centroids[l] for l in valid_labels])
         sim_matrix = cosine_similarity(matrix)
         
-        # 3. Clustering basado en similitud de contenido
-        # Usamos un umbral alto (0.85+) para fusionar cosas que realmente hablan de lo mismo
         clustering = AgglomerativeClustering(
             n_clusters=None, 
             distance_threshold=1 - UMBRAL_FUSION_CONTENIDO, 
@@ -498,18 +487,13 @@ class ClasificadorSubtemaV3:
             linkage='average'
         ).fit(1 - sim_matrix)
 
-        # 4. Crear mapa de fusión
         mapa_fusion = {}
         for cluster_id in set(clustering.labels_):
             indices_cluster = [i for i, x in enumerate(clustering.labels_) if x == cluster_id]
             labels_in_cluster = [valid_labels[i] for i in indices_cluster]
-            
-            # Elegimos el nombre más representativo (el más frecuente en el set original)
             counts = Counter([l for l in etiquetas if l in labels_in_cluster])
-            representante = max(labels_in_cluster, key=lambda x: (counts[x], -len(x))) # Más frecuente, luego más corto
-            
-            for lbl in labels_in_cluster:
-                mapa_fusion[lbl] = representante
+            representante = max(labels_in_cluster, key=lambda x: (counts[x], -len(x))) 
+            for lbl in labels_in_cluster: mapa_fusion[lbl] = representante
 
         return [mapa_fusion.get(lbl, lbl) for lbl in etiquetas]
 
@@ -517,7 +501,6 @@ class ClasificadorSubtemaV3:
         textos, titulos, resumenes = df_columna_resumen.tolist(), titulos_puros.tolist(), resumen_puro.tolist()
         n = len(textos)
         
-        # 1. Agrupación inicial
         progress_bar.progress(0.1, "⚡ Agrupando noticias similares...")
         grupos_rapidos = self._preagrupar_textos_identicos(textos, titulos, resumenes)
         
@@ -545,7 +528,6 @@ class ClasificadorSubtemaV3:
             for idxs in grupos_cluster.values():
                 for j in idxs[1:]: dsu.union(idxs[0], j)
         
-        # 2. Generación de etiquetas
         comp = defaultdict(list)
         for i in range(n): comp[dsu.find_iter(i)].append(i)
         
@@ -559,7 +541,6 @@ class ClasificadorSubtemaV3:
             
         subtemas_brutos = [mapa_subtemas.get(i, "Varios") for i in range(n)]
         
-        # 3. FUSION POR CONTENIDO (TITULO/RESUMEN)
         progress_bar.progress(0.8, "🗜️ Fusionando por similitud de contenido (Título/Resumen)...")
         subtemas_fusionados = self._fusionar_grupos_por_contenido(subtemas_brutos, textos)
         
@@ -570,17 +551,11 @@ class ClasificadorSubtemaV3:
 
 # --- FUNCIÓN DE CONSOLIDACIÓN DE TEMAS OPTIMIZADA ---
 def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) -> List[str]:
-    """
-    Genera temas agrupando subtemas, pero verifica el contenido (embeddings de textos)
-    para asegurar que temas similares en contenido se llamen igual.
-    """
     p_bar.progress(0.1, text="📊 Analizando estructura de Temas...")
     
-    # 1. Crear DataFrame temporal para manipular
     df_temas = pd.DataFrame({'subtema': subtemas, 'texto': textos})
     unique_subtemas = df_temas['subtema'].unique()
     
-    # 2. Obtener Embeddings de los Nombres de los Subtemas (Semántica pura de etiqueta)
     embs_labels = get_embeddings_batch(list(unique_subtemas))
     valid_idxs = [i for i, e in enumerate(embs_labels) if e is not None]
     
@@ -589,33 +564,26 @@ def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) 
     valid_subtemas = [unique_subtemas[i] for i in valid_idxs]
     matrix_labels = np.array([embs_labels[i] for i in valid_idxs])
     
-    # 3. Obtener Embeddings del Contenido Promedio por Subtema (Para similitud real)
-    # Esto ayuda a agrupar "Resultados Q1" y "Ganancias Trimestrales" aunque las palabras disten
     todos_embs_textos = get_embeddings_batch(textos)
     matrix_content = []
     
-    for st in valid_subtemas:
-        idxs = df_temas.index[df_temas['subtema'] == st].tolist()[:30] # Muestra
+    # Corrección de variable de iteración para evitar shadowing de 'st'
+    for subt in valid_subtemas:
+        idxs = df_temas.index[df_temas['subtema'] == subt].tolist()[:30]
         vecs = [todos_embs_textos[i] for i in idxs if todos_embs_textos[i] is not None]
         if vecs:
             matrix_content.append(np.mean(vecs, axis=0))
         else:
-            # Fallback al embedding del label si no hay textos validos (raro)
-            idx_orig = list(unique_subtemas).index(st)
+            idx_orig = list(unique_subtemas).index(subt)
             matrix_content.append(embs_labels[idx_orig])
             
     matrix_content = np.array(matrix_content)
-    
-    # 4. Matriz Híbrida (50% Etiqueta, 50% Contenido)
     sim_labels = cosine_similarity(matrix_labels)
     sim_content = cosine_similarity(matrix_content)
-    
-    # Damos peso al contenido para cumplir con "similitudes en titulo o resumen"
     sim_final = (0.4 * sim_labels) + (0.6 * sim_content)
     
-    # 5. Clustering Forzado a NUM_TEMAS_PRINCIPALES
     n_clusters_target = min(NUM_TEMAS_PRINCIPALES, len(valid_subtemas))
-    if n_clusters_target < 2: return subtemas # Nada que agrupar
+    if n_clusters_target < 2: return subtemas
 
     clustering = AgglomerativeClustering(
         n_clusters=n_clusters_target, 
@@ -623,7 +591,6 @@ def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) 
         linkage='average'
     ).fit(1 - sim_final)
     
-    # 6. Nombrar los clusters
     mapa_tema_final = {}
     clusters_contenidos = defaultdict(list)
     
@@ -631,7 +598,6 @@ def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) 
         clusters_contenidos[label].append(valid_subtemas[i])
         
     for cid, lista_subtemas in clusters_contenidos.items():
-        # Prompt al LLM para nombrar el grupo
         subtemas_str = ", ".join(lista_subtemas[:10])
         prompt = f"""Categoría general (2 palabras) para agrupar: {subtemas_str}. 
         Ej: 'Resultados Financieros', 'Sostenibilidad', 'Lanzamientos'.
@@ -642,10 +608,11 @@ def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) 
         except:
             nombre_tema = lista_subtemas[0] 
         
-        for st in lista_subtemas:
-            mapa_tema_final[st] = nombre_tema
+        # Corrección de variable de iteración
+        for subt in lista_subtemas:
+            mapa_tema_final[subt] = nombre_tema
             
-    temas_finales = [mapa_tema_final.get(st, st) for st in subtemas]
+    temas_finales = [mapa_tema_final.get(subt, subt) for subt in subtemas]
     
     st.info(f"📉 Temas consolidados en: {len(set(temas_finales))} categorías")
     p_bar.progress(1.0, "✅ Temas finalizados")
@@ -989,13 +956,11 @@ def main():
             st.markdown('<div class="success-card">', unsafe_allow_html=True)
             st.download_button("📥 **DESCARGAR INFORME**", data=st.session_state.output_data, file_name=st.session_state.output_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
             
-            # Botón de refinar eliminado como se solicitó.
-            
             if st.button("🔄 **Nuevo Análisis**", use_container_width=True):
                 pwd = st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
     with tab2: render_quick_analysis_tab()
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v6.5.0 | Análisis Compactado por Contenido</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v6.6.0 | Análisis Compactado por Contenido + Fix Variable Shadowing</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
