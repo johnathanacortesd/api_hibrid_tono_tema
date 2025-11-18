@@ -47,13 +47,13 @@ MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 150 
 
 # Configuración de agrupación
-NUM_TEMAS_PRINCIPALES = 20  
+NUM_TEMAS_PRINCIPALES = 20  # Aumentado a 20 según solicitud
 UMBRAL_FUSION_CONTENIDO = 0.85 
 
 # Precios (Por 1 millón de tokens)
 PRICE_INPUT_1M = 0.10
 PRICE_OUTPUT_1M = 0.40
-PRICE_EMBEDDING_1M = 0.02 # Precio estándar de text-embedding-3-small
+PRICE_EMBEDDING_1M = 0.02 
 
 # Inicializar contadores de tokens en session_state
 if 'tokens_input' not in st.session_state: st.session_state['tokens_input'] = 0
@@ -225,9 +225,16 @@ def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optio
                 input=batch_truncado,
                 model=OPENAI_MODEL_EMBEDDING
             )
-            # Contar tokens de embedding
-            if hasattr(resp, 'usage'):
-                st.session_state['tokens_embedding'] += resp.usage.total_tokens
+            # Contar tokens de embedding (Safe Access)
+            if isinstance(resp, dict):
+                usage = resp.get('usage', {})
+            else:
+                usage = getattr(resp, 'usage', {})
+            
+            if usage:
+                 # Asegurar que es un diccionario o un objeto con atributo
+                 total = usage.get('total_tokens') if isinstance(usage, dict) else getattr(usage, 'total_tokens', 0)
+                 st.session_state['tokens_embedding'] += total
             
             for j, emb_data in enumerate(resp["data"]):
                 resultados[i + j] = emb_data["embedding"]
@@ -236,8 +243,16 @@ def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optio
             for j, texto in enumerate(batch):
                 try:
                     resp = openai.Embedding.create(input=[texto[:2000]], model=OPENAI_MODEL_EMBEDDING)
-                    if hasattr(resp, 'usage'):
-                        st.session_state['tokens_embedding'] += resp.usage.total_tokens
+                    
+                    if isinstance(resp, dict):
+                        usage = resp.get('usage', {})
+                    else:
+                        usage = getattr(resp, 'usage', {})
+                    
+                    if usage:
+                        total = usage.get('total_tokens') if isinstance(usage, dict) else getattr(usage, 'total_tokens', 0)
+                        st.session_state['tokens_embedding'] += total
+                        
                     resultados[i + j] = resp["data"][0]["embedding"]
                 except:
                     resultados[i + j] = None
@@ -348,9 +363,16 @@ Responde SOLO en JSON: {{"tono":"Positivo|Negativo|Neutro"}}"""
             resp = await acall_with_retries(openai.ChatCompletion.acreate, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=50, temperature=0.0, response_format={"type": "json_object"})
             
             # Contar tokens Chat
-            if hasattr(resp, 'usage'):
-                st.session_state['tokens_input'] += resp.usage.prompt_tokens
-                st.session_state['tokens_output'] += resp.usage.completion_tokens
+            if isinstance(resp, dict):
+                usage = resp.get('usage', {})
+            else:
+                usage = getattr(resp, 'usage', {})
+            
+            if usage:
+                pt = usage.get('prompt_tokens') if isinstance(usage, dict) else getattr(usage, 'prompt_tokens', 0)
+                ct = usage.get('completion_tokens') if isinstance(usage, dict) else getattr(usage, 'completion_tokens', 0)
+                st.session_state['tokens_input'] += pt
+                st.session_state['tokens_output'] += ct
             
             data = json.loads(resp.choices[0].message.content.strip())
             tono = str(data.get("tono", "Neutro")).title()
@@ -477,9 +499,16 @@ class ClasificadorSubtemaV3:
             resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=35, temperature=0.1, response_format={"type": "json_object"})
             
             # Contar tokens Chat
-            if hasattr(resp, 'usage'):
-                st.session_state['tokens_input'] += resp.usage.prompt_tokens
-                st.session_state['tokens_output'] += resp.usage.completion_tokens
+            if isinstance(resp, dict):
+                usage = resp.get('usage', {})
+            else:
+                usage = getattr(resp, 'usage', {})
+            
+            if usage:
+                pt = usage.get('prompt_tokens') if isinstance(usage, dict) else getattr(usage, 'prompt_tokens', 0)
+                ct = usage.get('completion_tokens') if isinstance(usage, dict) else getattr(usage, 'completion_tokens', 0)
+                st.session_state['tokens_input'] += pt
+                st.session_state['tokens_output'] += ct
 
             subtema = limpiar_tema_geografico(limpiar_tema(json.loads(resp.choices[0].message.content.strip()).get("subtema", "Varios")), self.marca, self.aliases)
             self.cache_subtemas[cache_key] = subtema; return subtema
@@ -635,9 +664,16 @@ def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) 
             resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=15, temperature=0.1)
             
             # Contar tokens Chat
-            if hasattr(resp, 'usage'):
-                st.session_state['tokens_input'] += resp.usage.prompt_tokens
-                st.session_state['tokens_output'] += resp.usage.completion_tokens
+            if isinstance(resp, dict):
+                usage = resp.get('usage', {})
+            else:
+                usage = getattr(resp, 'usage', {})
+            
+            if usage:
+                pt = usage.get('prompt_tokens') if isinstance(usage, dict) else getattr(usage, 'prompt_tokens', 0)
+                ct = usage.get('completion_tokens') if isinstance(usage, dict) else getattr(usage, 'completion_tokens', 0)
+                st.session_state['tokens_input'] += pt
+                st.session_state['tokens_output'] += ct
 
             nombre_tema = limpiar_tema(resp.choices[0].message.content.strip().replace('"','').replace('.',''))
         except:
@@ -1036,7 +1072,7 @@ def main():
                 pwd = st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
     with tab2: render_quick_analysis_tab()
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v7.0.0 | Análisis Compactado + Estimación de Costos</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v7.1.0 | Análisis Compactado + Costo Robustecido</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
