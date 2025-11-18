@@ -484,22 +484,30 @@ def generar_output_final(rows: List[Dict], key_map: Dict) -> bytes:
     b = io.BytesIO(); wb.save(b); return b.getvalue()
 
 # ======================================
-# Pipeline Principal
+# Pipeline Principal (CORREGIDO)
 # ======================================
 async def pipeline_analisis(df_input: pd.DataFrame, kmap: Dict, brand: str, aliases: List[str], mode: str, pkl_tono=None, pkl_tema=None):
     col_tit = kmap["titulo"]
     col_res = kmap["resumen"]
     df_input["txt_full"] = df_input[col_tit].fillna("").astype(str) + ". " + df_input[col_res].fillna("").astype(str)
     
-    # 1. Agrupación
+    # 1. Agrupación (Usando posiciones relativas al DataFrame filtrado)
+    # Nota: agrupar_noticias_robustas devuelve indices basados en range(len(df_input))
     grupos = agrupar_noticias_robustas(df_input, col_tit, col_res)
+    
     representantes = [] 
     mapa_grupo_indices = defaultdict(list)
     
-    for gid, indices in grupos.items():
-        idx_rep = max(indices, key=lambda i: len(df_input.iloc[i]["txt_full"]))
-        representantes.append(df_input.iloc[idx_rep]["txt_full"])
-        mapa_grupo_indices[len(representantes)-1] = indices
+    # Mapa para traducir posición relativa (0,1,2...) a índice real del DataFrame (label index)
+    pos_to_label = {i: idx for i, idx in enumerate(df_input.index)}
+    
+    for gid, indices_posicionales in grupos.items():
+        # Elegir texto más largo como representante
+        # Convertir indices posicionales a indices iloc para extraer datos
+        idx_rep_pos = max(indices_posicionales, key=lambda i: len(df_input.iloc[i]["txt_full"]))
+        
+        representantes.append(df_input.iloc[idx_rep_pos]["txt_full"])
+        mapa_grupo_indices[len(representantes)-1] = indices_posicionales
 
     results = {"Tono": [], "Tema": [], "Subtema": []}
     
@@ -542,15 +550,18 @@ async def pipeline_analisis(df_input: pd.DataFrame, kmap: Dict, brand: str, alia
     else:
         results["Tema"] = cls_s.generar_temas_macro(results["Subtema"])
 
-    # 5. Asignar
+    # 5. Asignar (CORRECCIÓN DE KEYERROR)
     df_input["Tono IA"] = ""
     df_input["Tema"] = ""
     df_input["Subtema"] = ""
     
-    for i, indices in mapa_grupo_indices.items():
-        df_input.loc[indices, "Tono IA"] = results["Tono"][i]
-        df_input.loc[indices, "Tema"] = results["Tema"][i]
-        df_input.loc[indices, "Subtema"] = results["Subtema"][i]
+    for i, indices_pos in mapa_grupo_indices.items():
+        # Convertir posiciones (0,1,2) a etiquetas reales del índice (23, 45, 67)
+        indices_reales = [pos_to_label[p] for p in indices_pos]
+        
+        df_input.loc[indices_reales, "Tono IA"] = results["Tono"][i]
+        df_input.loc[indices_reales, "Tema"] = results["Tema"][i]
+        df_input.loc[indices_reales, "Subtema"] = results["Subtema"][i]
         
     return df_input
 
