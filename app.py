@@ -47,8 +47,18 @@ MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 150 
 
 # Configuración de agrupación
-NUM_TEMAS_PRINCIPALES = 15  
+NUM_TEMAS_PRINCIPALES = 20  
 UMBRAL_FUSION_CONTENIDO = 0.85 
+
+# Precios (Por 1 millón de tokens)
+PRICE_INPUT_1M = 0.10
+PRICE_OUTPUT_1M = 0.40
+PRICE_EMBEDDING_1M = 0.02 # Precio estándar de text-embedding-3-small
+
+# Inicializar contadores de tokens en session_state
+if 'tokens_input' not in st.session_state: st.session_state['tokens_input'] = 0
+if 'tokens_output' not in st.session_state: st.session_state['tokens_output'] = 0
+if 'tokens_embedding' not in st.session_state: st.session_state['tokens_embedding'] = 0
 
 # Listas Geográficas (Abreviadas)
 CIUDADES_COLOMBIA = { "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla", "cartagena", "cúcuta", "cucuta", "bucaramanga", "pereira", "manizales", "armenia", "ibagué", "ibague", "villavicencio", "montería", "monteria", "neiva", "pasto", "valledupar", "popayán", "popayan", "tunja", "florencia", "sincelejo", "riohacha", "yopal", "santa marta", "santamarta", "quibdó", "quibdo", "leticia", "mocoa", "mitú", "mitu", "puerto carreño", "inírida", "inirida", "san josé del guaviare", "antioquia", "atlántico", "atlantico", "bolívar", "bolivar", "boyacá", "boyaca", "caldas", "caquetá", "caqueta", "casanare", "cauca", "cesar", "chocó", "choco", "córdoba", "cordoba", "cundinamarca", "guainía", "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "nariño", "narino", "norte de santander", "putumayo", "quindío", "quindio", "risaralda", "san andrés", "san andres", "santander", "sucre", "tolima", "valle del cauca", "vaupés", "vaupes", "vichada"}
@@ -215,12 +225,19 @@ def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optio
                 input=batch_truncado,
                 model=OPENAI_MODEL_EMBEDDING
             )
+            # Contar tokens de embedding
+            if hasattr(resp, 'usage'):
+                st.session_state['tokens_embedding'] += resp.usage.total_tokens
+            
             for j, emb_data in enumerate(resp["data"]):
                 resultados[i + j] = emb_data["embedding"]
         except Exception:
+            # Fallback individual
             for j, texto in enumerate(batch):
                 try:
                     resp = openai.Embedding.create(input=[texto[:2000]], model=OPENAI_MODEL_EMBEDDING)
+                    if hasattr(resp, 'usage'):
+                        st.session_state['tokens_embedding'] += resp.usage.total_tokens
                     resultados[i + j] = resp["data"][0]["embedding"]
                 except:
                     resultados[i + j] = None
@@ -329,6 +346,12 @@ Fragmentos:
 Responde SOLO en JSON: {{"tono":"Positivo|Negativo|Neutro"}}"""
         try:
             resp = await acall_with_retries(openai.ChatCompletion.acreate, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=50, temperature=0.0, response_format={"type": "json_object"})
+            
+            # Contar tokens Chat
+            if hasattr(resp, 'usage'):
+                st.session_state['tokens_input'] += resp.usage.prompt_tokens
+                st.session_state['tokens_output'] += resp.usage.completion_tokens
+            
             data = json.loads(resp.choices[0].message.content.strip())
             tono = str(data.get("tono", "Neutro")).title()
             return {"tono": tono if tono in ["Positivo","Negativo","Neutro"] else "Neutro"}
@@ -452,6 +475,12 @@ class ClasificadorSubtemaV3:
         
         try:
             resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=35, temperature=0.1, response_format={"type": "json_object"})
+            
+            # Contar tokens Chat
+            if hasattr(resp, 'usage'):
+                st.session_state['tokens_input'] += resp.usage.prompt_tokens
+                st.session_state['tokens_output'] += resp.usage.completion_tokens
+
             subtema = limpiar_tema_geografico(limpiar_tema(json.loads(resp.choices[0].message.content.strip()).get("subtema", "Varios")), self.marca, self.aliases)
             self.cache_subtemas[cache_key] = subtema; return subtema
         except: return "Actividad Corporativa"
@@ -604,6 +633,12 @@ def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) 
         NO verbos."""
         try:
             resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=15, temperature=0.1)
+            
+            # Contar tokens Chat
+            if hasattr(resp, 'usage'):
+                st.session_state['tokens_input'] += resp.usage.prompt_tokens
+                st.session_state['tokens_output'] += resp.usage.completion_tokens
+
             nombre_tema = limpiar_tema(resp.choices[0].message.content.strip().replace('"','').replace('.',''))
         except:
             nombre_tema = lista_subtemas[0] 
@@ -761,6 +796,11 @@ def generate_output_excel(all_processed_rows, key_map):
 # Proceso principal y UI
 # ======================================
 async def run_full_process_async(dossier_file, region_file, internet_file, brand_name, brand_aliases, tono_pkl_file, tema_pkl_file, analysis_mode):
+    # Reset counters
+    st.session_state['tokens_input'] = 0
+    st.session_state['tokens_output'] = 0
+    st.session_state['tokens_embedding'] = 0
+    
     start_time = time.time()
     if "API" in analysis_mode:
         try: openai.api_key = st.secrets["OPENAI_API_KEY"]; openai.aiosession.set(None)
@@ -829,18 +869,38 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
     
     gc.collect()
 
+    # Calcular Costos
+    cost_input = (st.session_state['tokens_input'] / 1_000_000) * PRICE_INPUT_1M
+    cost_output = (st.session_state['tokens_output'] / 1_000_000) * PRICE_OUTPUT_1M
+    cost_embedding = (st.session_state['tokens_embedding'] / 1_000_000) * PRICE_EMBEDDING_1M
+    total_cost = cost_input + cost_output + cost_embedding
+    cost_str = f"${total_cost:.4f} USD"
+
     with st.status("📊 **Paso 5/5:** Generando informe final", expanded=True) as s:
         duration_str = f"{time.time() - start_time:.0f}s"
         st.session_state["output_data"] = generate_output_excel(all_processed_rows, key_map)
         st.session_state["output_filename"] = f"Informe_IA_{brand_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
         st.session_state["processing_complete"] = True
-        st.session_state.update({"brand_name": brand_name, "brand_aliases": brand_aliases, "total_rows": len(all_processed_rows), "unique_rows": len(rows_to_analyze), "duplicates": len(all_processed_rows) - len(rows_to_analyze), "process_duration": duration_str})
+        st.session_state.update({
+            "brand_name": brand_name, 
+            "brand_aliases": brand_aliases, 
+            "total_rows": len(all_processed_rows), 
+            "unique_rows": len(rows_to_analyze), 
+            "duplicates": len(all_processed_rows) - len(rows_to_analyze), 
+            "process_duration": duration_str,
+            "process_cost": cost_str
+        })
         s.update(label="✅ **Paso 5/5:** Proceso completado", state="complete")
 
 # ======================================
 # Funciones para Análisis Rápido
 # ======================================
 async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col: str, brand_name: str, aliases: List[str]):
+    # Reset counters
+    st.session_state['tokens_input'] = 0
+    st.session_state['tokens_output'] = 0
+    st.session_state['tokens_embedding'] = 0
+    
     df['texto_analisis'] = df[title_col].fillna('').astype(str) + ". " + df[summary_col].fillna('').astype(str)
     
     with st.status("🎯 **Paso 1/2:** Analizando Tono...", expanded=True) as s:
@@ -862,6 +922,14 @@ async def run_quick_analysis_async(df: pd.DataFrame, title_col: str, summary_col
         s.update(label="✅ **Paso 2/2:** Clasificación Finalizada", state="complete")
         
     df.drop(columns=['texto_analisis'], inplace=True)
+    
+    # Calcular Costos
+    cost_input = (st.session_state['tokens_input'] / 1_000_000) * PRICE_INPUT_1M
+    cost_output = (st.session_state['tokens_output'] / 1_000_000) * PRICE_OUTPUT_1M
+    cost_embedding = (st.session_state['tokens_embedding'] / 1_000_000) * PRICE_EMBEDDING_1M
+    total_cost = cost_input + cost_output + cost_embedding
+    st.session_state['quick_cost'] = f"${total_cost:.4f} USD"
+    
     return df
 
 def generate_quick_analysis_excel(df: pd.DataFrame) -> bytes:
@@ -874,11 +942,16 @@ def render_quick_analysis_tab():
     st.info("Utiliza la API de OpenAI para un análisis avanzado de Tono, Tema y Subtema.")
     if 'quick_analysis_result' in st.session_state:
         st.success("🎉 Análisis Rápido Completado")
+        
+        # Mostrar costo
+        cost = st.session_state.get('quick_cost', "$0.00")
+        st.metric(label="Costo Estimado", value=cost)
+        
         st.dataframe(st.session_state.quick_analysis_result.head(10))
         excel_data = generate_quick_analysis_excel(st.session_state.quick_analysis_result)
         st.download_button(label="📥 **Descargar Resultados**", data=excel_data, file_name=f"Analisis_Rapido_IA.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
         if st.button("🔄 Nuevo Análisis"):
-            for key in ['quick_analysis_result', 'quick_analysis_df', 'quick_file_name']: 
+            for key in ['quick_analysis_result', 'quick_analysis_df', 'quick_file_name', 'quick_cost']: 
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
         return
@@ -910,7 +983,7 @@ def render_quick_analysis_tab():
                         st.session_state.quick_analysis_result = asyncio.run(run_quick_analysis_async(df.copy(), title_col, summary_col, brand_name, aliases))
                     st.rerun()
         if st.button("⬅️ Cargar otro"):
-            for key in ['quick_analysis_df', 'quick_file_name', 'quick_analysis_result']: 
+            for key in ['quick_analysis_df', 'quick_file_name', 'quick_analysis_result', 'quick_cost']: 
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
 
@@ -948,11 +1021,14 @@ def main():
                         st.rerun()
         else:
             st.markdown("## 🎉 Análisis Completado")
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns(5)
             c1.markdown(f'<div class="metric-card"><div class="metric-value">{st.session_state.total_rows}</div><div class="metric-label">Total</div></div>', unsafe_allow_html=True)
             c2.markdown(f'<div class="metric-card"><div class="metric-value" style="color:green;">{st.session_state.unique_rows}</div><div class="metric-label">Únicas</div></div>', unsafe_allow_html=True)
             c3.markdown(f'<div class="metric-card"><div class="metric-value" style="color:orange;">{st.session_state.duplicates}</div><div class="metric-label">Duplicados</div></div>', unsafe_allow_html=True)
             c4.markdown(f'<div class="metric-card"><div class="metric-value" style="color:blue;">{st.session_state.process_duration}</div><div class="metric-label">Tiempo</div></div>', unsafe_allow_html=True)
+            # Nueva tarjeta de Costo
+            c5.markdown(f'<div class="metric-card"><div class="metric-value" style="color:red;">{st.session_state.get("process_cost", "$0.00")}</div><div class="metric-label">Costo Est.</div></div>', unsafe_allow_html=True)
+            
             st.markdown('<div class="success-card">', unsafe_allow_html=True)
             st.download_button("📥 **DESCARGAR INFORME**", data=st.session_state.output_data, file_name=st.session_state.output_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
             
@@ -960,7 +1036,7 @@ def main():
                 pwd = st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
     with tab2: render_quick_analysis_tab()
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v6.6.0 | Análisis Compactado por Contenido + Fix Variable Shadowing</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v7.0.0 | Análisis Compactado + Estimación de Costos</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
