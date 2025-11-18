@@ -148,7 +148,7 @@ Si eliges usar los modos "Híbrido" o "Solo Modelos PKL", tus modelos deben cump
 
 [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1oe9ThUGIkGA5_QQzycErE2R530MchcFC#scrollTo=QPhTBAzd_xas)
 
-Para aprovechar al máximo los modos **Híbrido (PKL + API)** y **Solo Modelos PKL**, puedes entrenar tus propios modelos de clasificación de Tono y Tema. Hemos creado un notebook de Google Colab que simplifica este proceso en dos fases principales: preparación de datos y entrenamiento.
+Para aprovechar al máximo los modos **Híbrido (PKL + API)** y **Solo Modelos PKL**, puedes entrenar tus propios modelos de clasificación de Tono y Tema. He creado creado un notebook de Google Colab que simplifica este proceso en dos fases principales: preparación de datos y entrenamiento.
 
 ### Fase 1: Preparación de Datos (Concatenador Inteligente)
 
