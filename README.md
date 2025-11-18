@@ -6,6 +6,9 @@ Una aplicación web construida por Johnathan Cortés con **Streamlit** para el p
 
 [![Abrir en Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://api-hibrid-tono-tema.streamlit.app/)
 
+## Entrenador [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1oe9ThUGIkGA5_QQzycErE2R530MchcFC#scrollTo=QPhTBAzd_xas)
+
+
 ## 📜 Descripción General
 
 Este proyecto proporciona una solución integral para analistas de medios y comunicadores que necesitan procesar grandes volúmenes de noticias (dossieres). La aplicación automatiza tareas tediosas y complejas como la detección de duplicados, la normalización de datos y, lo más importante, el **análisis de sentimiento (Tono)** y la **clasificación temática (Tema y Subtema)** de cada artículo.
