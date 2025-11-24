@@ -1073,7 +1073,7 @@ def main():
                 pwd = st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
     with tab2: render_quick_analysis_tab()
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v7.2.0 | Análisis Compactado + Costo Robustecido (Sin Cache)</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v7.2.0 | 🤖 Realizado por Johnathan Cortés ©️</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
