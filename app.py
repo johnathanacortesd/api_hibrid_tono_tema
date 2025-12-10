@@ -38,17 +38,16 @@ st.set_page_config(
 OPENAI_MODEL_EMBEDDING = "text-embedding-3-small"
 OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14" 
 
-# Configuración de rendimiento y umbrales (MEJORADOS)
+# Configuración de rendimiento y umbrales
 CONCURRENT_REQUESTS = 50
-SIMILARITY_THRESHOLD_TONO = 0.85  # Reducido de 0.92 para agrupar más
-SIMILARITY_THRESHOLD_TITULOS = 0.88  # Reducido de 0.95 para agrupar más
+SIMILARITY_THRESHOLD_TONO = 0.92
+SIMILARITY_THRESHOLD_TITULOS = 0.95 
 MAX_TOKENS_PROMPT_TXT = 4000
 WINDOW = 150 
 
-# Configuración de agrupación (MEJORADOS)
-NUM_TEMAS_PRINCIPALES = 15  # Reducido de 20 para forzar consolidación
-UMBRAL_FUSION_CONTENIDO = 0.78  # Reducido de 0.85 para fusión más agresiva
-UMBRAL_FUSION_FINAL = 0.82  # NUEVO: Para fusión semántica de etiquetas
+# Configuración de agrupación
+NUM_TEMAS_PRINCIPALES = 20  # Configurado a 20
+UMBRAL_FUSION_CONTENIDO = 0.85 
 
 # Precios (Por 1 millón de tokens)
 PRICE_INPUT_1M = 0.10
@@ -209,9 +208,12 @@ def normalizar_tipo_medio(tipo_raw: str) -> str:
     return mapping.get(t, default_value)
 
 # ======================================
-# Función de Embeddings SIN CACHÉ
+# Función de Embeddings SIN CACHÉ (Para conteo preciso de costos)
 # ======================================
 def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optional[List[float]]]:
+    """
+    NO USA @st.cache_data para permitir el conteo de tokens y cálculo de costos en tiempo real.
+    """
     if not textos: return []
     resultados = [None] * len(textos)
     
@@ -231,6 +233,7 @@ def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optio
                 usage = getattr(resp, 'usage', {})
             
             if usage:
+                 # Asegurar que es un diccionario o un objeto con atributo
                  total = usage.get('total_tokens') if isinstance(usage, dict) else getattr(usage, 'total_tokens', 0)
                  st.session_state['tokens_embedding'] += total
             
@@ -241,10 +244,12 @@ def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optio
             for j, texto in enumerate(batch):
                 try:
                     resp = openai.Embedding.create(input=[texto[:2000]], model=OPENAI_MODEL_EMBEDDING)
+                    
                     if isinstance(resp, dict):
                         usage = resp.get('usage', {})
                     else:
                         usage = getattr(resp, 'usage', {})
+                    
                     if usage:
                         total = usage.get('total_tokens') if isinstance(usage, dict) else getattr(usage, 'total_tokens', 0)
                         st.session_state['tokens_embedding'] += total
@@ -469,8 +474,7 @@ class ClasificadorSubtemaV3:
                 if e is not None: valid_embs.append(e); final_idxs.append(batch_idxs[k])
             if len(valid_embs) < 2: continue
             sim_matrix = cosine_similarity(np.array(valid_embs))
-            # Ajuste de threshold: 0.22 es menos agresivo que 0.18
-            clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=0.22, metric='precomputed', linkage='average').fit(1-sim_matrix)
+            clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=0.18, metric='precomputed', linkage='average').fit(1-sim_matrix)
             grupos = defaultdict(list)
             for i, lbl in enumerate(clustering.labels_): grupos[lbl].append(final_idxs[i])
             for lbl, idxs in grupos.items(): 
@@ -478,48 +482,22 @@ class ClasificadorSubtemaV3:
             grupo_id_offset += len(grupos)
         return grupos_finales
 
-    def _generar_subtema_con_cache(self, textos_muestra, titulos_muestra, contexto_global=None):
-        """Genera subtemas considerando el contexto global de todos los grupos"""
+    def _generar_subtema_con_cache(self, textos_muestra, titulos_muestra):
         cache_key = hashlib.md5("|".join(sorted([normalize_title_for_comparison(t) for t in titulos_muestra[:3]])).encode()).hexdigest()
-        if cache_key in self.cache_subtemas: 
-            return self.cache_subtemas[cache_key]
+        if cache_key in self.cache_subtemas: return self.cache_subtemas[cache_key]
         
-        # Extraer keywords del grupo actual
         palabras_titulos = []
-        for t in titulos_muestra[:8]:  # Aumentado de 5 a 8 para mejor contexto
-            palabras_titulos.extend([w for w in string_norm_label(t).split() if w not in STOPWORDS_ES and len(w)>3])
-        keywords = " ".join([w for w, c in Counter(palabras_titulos).most_common(8)])
+        for t in titulos_muestra[:5]: palabras_titulos.extend([w for w in string_norm_label(t).split() if w not in STOPWORDS_ES and len(w)>3])
+        keywords = " ".join([w for w, c in Counter(palabras_titulos).most_common(5)])
         
-        # Contexto de subtemas existentes para evitar redundancia
-        contexto_str = ""
-        if contexto_global and len(contexto_global) > 0:
-            contexto_str = f"\n\nSUBTEMAS YA CREADOS (evita duplicar): {', '.join(list(set(contexto_global))[:15])}"
-        
-        prompt = f"""Genera un SUBTEMA periodístico GENÉRICO (2-4 palabras) para estas noticias similares.
-
-TÍTULOS:
-{chr(10).join([f'- {t[:120]}' for t in titulos_muestra[:8]])}
-
-KEYWORDS FRECUENTES: {keywords}
-
-REGLAS CRÍTICAS:
-1. USA términos GENERALES, NO específicos (Ej: "Expansión Regional" NO "Apertura Sucursal Bogotá")
-2. NO menciones: '{self.marca}', ciudades, fechas, nombres propios
-3. Si hay múltiples acciones similares, generaliza (Ej: "Lanzamientos" NO "Lanzamiento App Móvil")
-4. Prioriza SUSTANTIVOS sobre verbos
-5. Máximo 4 palabras{contexto_str}
-
-RESPONDE SOLO: {{"subtema":"..."}}"""
+        prompt = f"""Genera un SUBTEMA periodístico (3-5 palabras) para agrupar estas noticias.
+        TÍTULOS: {chr(10).join([f'- {t[:100]}' for t in titulos_muestra[:5]])}
+        KEYWORDS: {keywords}
+        RESTRICCIONES: NO usar '{self.marca}', ciudades, ni verbos vagos. SER CONCRETO (Ej: 'Apertura Sucursal Centro' y NO 'Apertura').
+        JSON: {{"subtema":"..."}}"""
         
         try:
-            resp = call_with_retries(
-                openai.ChatCompletion.create, 
-                model=OPENAI_MODEL_CLASIFICACION, 
-                messages=[{"role": "user", "content": prompt}], 
-                max_tokens=25,
-                temperature=0.05,
-                response_format={"type": "json_object"}
-            )
+            resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=35, temperature=0.1, response_format={"type": "json_object"})
             
             # Contar tokens Chat
             if isinstance(resp, dict):
@@ -533,18 +511,9 @@ RESPONDE SOLO: {{"subtema":"..."}}"""
                 st.session_state['tokens_input'] += pt
                 st.session_state['tokens_output'] += ct
 
-            subtema_raw = json.loads(resp.choices[0].message.content.strip()).get("subtema", "Varios")
-            subtema = limpiar_tema_geografico(limpiar_tema(subtema_raw), self.marca, self.aliases)
-            
-            # Validación adicional: si el subtema es muy largo o contiene verbos, regenerar
-            if len(subtema.split()) > 4 or any(verb in subtema.lower() for verb in ['lanza', 'anuncia', 'presenta', 'inaugura']):
-                palabras_validas = [p for p in subtema.split() if len(p) > 3 and p.lower() not in ['presenta', 'lanza', 'anuncia']]
-                subtema = " ".join(palabras_validas[:3]) if palabras_validas else "Actividad Corporativa"
-            
-            self.cache_subtemas[cache_key] = subtema
-            return subtema
-        except Exception: 
-            return "Actividad Corporativa"
+            subtema = limpiar_tema_geografico(limpiar_tema(json.loads(resp.choices[0].message.content.strip()).get("subtema", "Varios")), self.marca, self.aliases)
+            self.cache_subtemas[cache_key] = subtema; return subtema
+        except: return "Actividad Corporativa"
 
     def _fusionar_grupos_por_contenido(self, etiquetas: List[str], textos: List[str]) -> List[str]:
         df_temp = pd.DataFrame({'label': etiquetas, 'text': textos})
@@ -587,58 +556,6 @@ RESPONDE SOLO: {{"subtema":"..."}}"""
 
         return [mapa_fusion.get(lbl, lbl) for lbl in etiquetas]
 
-    def _fusion_final_por_etiquetas(self, subtemas: List[str], textos: List[str]) -> List[str]:
-        """
-        Fusión adicional basada en similitud semántica de las ETIQUETAS de subtemas.
-        Agrupa subtemas con nombres similares aunque tengan contenidos diferentes.
-        """
-        df_temp = pd.DataFrame({'subtema': subtemas, 'texto': textos})
-        unique_subtemas = df_temp['subtema'].unique()
-        
-        if len(unique_subtemas) < 2:
-            return subtemas
-        
-        # Embeddings de los NOMBRES de subtemas (no del contenido)
-        embs_etiquetas = get_embeddings_batch(list(unique_subtemas))
-        valid_indices = [i for i, e in enumerate(embs_etiquetas) if e is not None]
-        
-        if len(valid_indices) < 2:
-            return subtemas
-        
-        valid_subtemas = [unique_subtemas[i] for i in valid_indices]
-        matrix = np.array([embs_etiquetas[i] for i in valid_indices])
-        
-        # Similitud de coseno entre nombres de subtemas
-        sim_matrix = cosine_similarity(matrix)
-        
-        # Clustering con umbral personalizado para etiquetas
-        clustering = AgglomerativeClustering(
-            n_clusters=None,
-            distance_threshold=1 - UMBRAL_FUSION_FINAL,
-            metric='precomputed',
-            linkage='average'
-        ).fit(1 - sim_matrix)
-        
-        # Crear mapa de fusión: elegir el subtema más frecuente como representante
-        mapa_fusion = {}
-        for cluster_id in set(clustering.labels_):
-            indices_en_cluster = [i for i, lbl in enumerate(clustering.labels_) if lbl == cluster_id]
-            subtemas_en_cluster = [valid_subtemas[i] for i in indices_en_cluster]
-            
-            # Contar frecuencia en el dataset original
-            conteos = Counter([s for s in subtemas if s in subtemas_en_cluster])
-            
-            # Elegir el más frecuente, o el más corto en caso de empate
-            representante = max(
-                subtemas_en_cluster, 
-                key=lambda x: (conteos[x], -len(x), -x.count(' '))
-            )
-            
-            for st_name in subtemas_en_cluster:
-                mapa_fusion[st_name] = representante
-        
-        return [mapa_fusion.get(s, s) for s in subtemas]
-
     def procesar_lote(self, df_columna_resumen: pd.Series, progress_bar, resumen_puro: pd.Series, titulos_puros: pd.Series) -> List[str]:
         textos, titulos, resumenes = df_columna_resumen.tolist(), titulos_puros.tolist(), resumen_puro.tolist()
         n = len(textos)
@@ -648,6 +565,7 @@ RESPONDE SOLO: {{"subtema":"..."}}"""
         
         class DSU:
             def __init__(self, n): self.p = list(range(n))
+            def find(self, i): return i if self.p[i]==i else self.p[i] if self.p[i]==self.find(self.p[i]) else self.find(self.p[i])
             def find_iter(self, i):
                 path = []
                 while i != self.p[i]: path.append(i); i = self.p[i]
@@ -672,100 +590,59 @@ RESPONDE SOLO: {{"subtema":"..."}}"""
         comp = defaultdict(list)
         for i in range(n): comp[dsu.find_iter(i)].append(i)
         
-        # NUEVA LÓGICA: Generar subtemas con contexto global iterativo
         mapa_subtemas = {}
-        subtemas_generados = []  # Lista para tracking de subtemas creados
         total_grupos = len(comp)
         
         for k, (lid, idxs) in enumerate(comp.items()):
-            if k % 15 == 0: 
-                progress_bar.progress(0.4 + 0.25 * k/total_grupos, f"🏷️ Etiquetando grupos {k}/{total_grupos}")
-            
-            # Pasar contexto de subtemas ya generados
-            subtema = self._generar_subtema_con_cache(
-                [textos[i] for i in idxs], 
-                [titulos[i] for i in idxs],
-                contexto_global=subtemas_generados
-            )
-            
-            subtemas_generados.append(subtema)
+            if k % 20 == 0: progress_bar.progress(0.4 + 0.3 * k/total_grupos, f"🏷️ Etiquetando grupos {k}/{total_grupos}")
+            subtema = self._generar_subtema_con_cache([textos[i] for i in idxs], [titulos[i] for i in idxs])
             for i in idxs: mapa_subtemas[i] = subtema
             
         subtemas_brutos = [mapa_subtemas.get(i, "Varios") for i in range(n)]
         
-        progress_bar.progress(0.7, "🗜️ Fusión 1: Por similitud de contenido...")
-        subtemas_fusion1 = self._fusionar_grupos_por_contenido(subtemas_brutos, textos)
+        progress_bar.progress(0.8, "🗜️ Fusionando por similitud de contenido (Título/Resumen)...")
+        subtemas_fusionados = self._fusionar_grupos_por_contenido(subtemas_brutos, textos)
         
-        progress_bar.progress(0.85, "🧲 Fusión 2: Por similitud semántica de etiquetas...")
-        subtemas_finales = self._fusion_final_por_etiquetas(subtemas_fusion1, textos)
-        
-        st.info(f"📉 Subtemas: {len(set(subtemas_brutos))} → {len(set(subtemas_fusion1))} → {len(set(subtemas_finales))}")
+        st.info(f"📉 Subtemas: {len(set(subtemas_brutos))} -> {len(set(subtemas_fusionados))}")
         progress_bar.progress(1.0, "✅ Subtemas listos")
         
-        return subtemas_finales
-
-# --- FUNCIÓN HELPER PARA KEYWORDS ---
-def extraer_keywords_frecuentes(textos_muestra: List[str]) -> str:
-    """Helper para extraer keywords más relevantes de un conjunto de textos"""
-    todas_palabras = []
-    for texto in textos_muestra:
-        palabras = [w for w in string_norm_label(texto).split() 
-                   if w not in STOPWORDS_ES and len(w) > 3]
-        todas_palabras.extend(palabras)
-    return " ".join([w for w, _ in Counter(todas_palabras).most_common(6)])
+        return subtemas_fusionados
 
 # --- FUNCIÓN DE CONSOLIDACIÓN DE TEMAS OPTIMIZADA ---
 def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) -> List[str]:
-    """
-    Consolida subtemas en temas principales con ponderación mejorada.
-    """
     p_bar.progress(0.1, text="📊 Analizando estructura de Temas...")
     
     df_temas = pd.DataFrame({'subtema': subtemas, 'texto': textos})
     unique_subtemas = df_temas['subtema'].unique()
     
-    # Embeddings de nombres de subtemas
     embs_labels = get_embeddings_batch(list(unique_subtemas))
     valid_idxs = [i for i, e in enumerate(embs_labels) if e is not None]
     
-    if not valid_idxs: 
-        return subtemas
+    if not valid_idxs: return subtemas
     
     valid_subtemas = [unique_subtemas[i] for i in valid_idxs]
     matrix_labels = np.array([embs_labels[i] for i in valid_idxs])
     
-    # Embeddings de contenido (muestreo representativo)
     todos_embs_textos = get_embeddings_batch(textos)
     matrix_content = []
     
+    # Corrección de variable de iteración para evitar shadowing de 'st'
     for subt in valid_subtemas:
-        idxs = df_temas.index[df_temas['subtema'] == subt].tolist()
-        
-        # Muestreo estratificado: primeras 20 + 10 aleatorias
-        if len(idxs) > 30:
-            idxs_muestra = idxs[:20] + list(np.random.choice(idxs[20:], min(10, len(idxs)-20), replace=False))
-        else:
-            idxs_muestra = idxs
-        
-        vecs = [todos_embs_textos[i] for i in idxs_muestra if todos_embs_textos[i] is not None]
-        
+        idxs = df_temas.index[df_temas['subtema'] == subt].tolist()[:30]
+        vecs = [todos_embs_textos[i] for i in idxs if todos_embs_textos[i] is not None]
         if vecs:
             matrix_content.append(np.mean(vecs, axis=0))
         else:
             idx_orig = list(unique_subtemas).index(subt)
             matrix_content.append(embs_labels[idx_orig])
-    
+            
     matrix_content = np.array(matrix_content)
-    
-    # Similitud combinada con peso 30% etiquetas / 70% contenido
     sim_labels = cosine_similarity(matrix_labels)
     sim_content = cosine_similarity(matrix_content)
-    sim_final = (0.3 * sim_labels) + (0.7 * sim_content)
+    sim_final = (0.4 * sim_labels) + (0.6 * sim_content)
     
-    # Clustering jerárquico
     n_clusters_target = min(NUM_TEMAS_PRINCIPALES, len(valid_subtemas))
-    if n_clusters_target < 2: 
-        return subtemas
+    if n_clusters_target < 2: return subtemas
 
     clustering = AgglomerativeClustering(
         n_clusters=n_clusters_target, 
@@ -773,52 +650,19 @@ def consolidar_subtemas_en_temas(subtemas: List[str], textos: List[str], p_bar) 
         linkage='average'
     ).fit(1 - sim_final)
     
-    p_bar.progress(0.5, "🎯 Generando nombres de temas...")
-    
-    # Generar nombres de temas con mejor contexto
     mapa_tema_final = {}
     clusters_contenidos = defaultdict(list)
     
     for i, label in enumerate(clustering.labels_):
         clusters_contenidos[label].append(valid_subtemas[i])
-    
+        
     for cid, lista_subtemas in clusters_contenidos.items():
-        # Analizar frecuencias para dar más peso a subtemas recurrentes
-        conteos_subtemas = Counter([s for s in subtemas if s in lista_subtemas])
-        top_subtemas = [s for s, _ in conteos_subtemas.most_common(8)]
-        
-        subtemas_str = ", ".join(top_subtemas)
-        
-        # Agregar keywords de los textos más representativos
-        indices_representativos = []
-        for st in top_subtemas[:3]:
-            indices_representativos.extend(df_temas.index[df_temas['subtema'] == st].tolist()[:5])
-        
-        textos_muestra = [textos[i][:200] for i in indices_representativos[:10]]
-        keywords_contenido = extraer_keywords_frecuentes(textos_muestra)
-        
-        prompt = f"""Genera un TEMA GENERAL (2-3 palabras) que agrupe estos subtemas:
-
-SUBTEMAS: {subtemas_str}
-KEYWORDS: {keywords_contenido}
-
-REGLAS:
-- Usa CATEGORÍAS AMPLIAS (Ej: "Finanzas", "Expansión", "Innovación", "Regulación")
-- NO uses verbos ni nombres específicos
-- Máximo 3 palabras
-- SOLO sustantivos
-
-RESPONDE: {{"tema":"..."}}"""
-        
+        subtemas_str = ", ".join(lista_subtemas[:10])
+        prompt = f"""Categoría general (2 palabras) para agrupar: {subtemas_str}. 
+        Ej: 'Resultados Financieros', 'Sostenibilidad', 'Lanzamientos'.
+        NO verbos."""
         try:
-            resp = call_with_retries(
-                openai.ChatCompletion.create, 
-                model=OPENAI_MODEL_CLASIFICACION, 
-                messages=[{"role": "user", "content": prompt}], 
-                max_tokens=15, 
-                temperature=0.05,
-                response_format={"type": "json_object"}
-            )
+            resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION, messages=[{"role": "user", "content": prompt}], max_tokens=15, temperature=0.1)
             
             # Contar tokens Chat
             if isinstance(resp, dict):
@@ -832,18 +676,17 @@ RESPONDE: {{"tema":"..."}}"""
                 st.session_state['tokens_input'] += pt
                 st.session_state['tokens_output'] += ct
 
-            nombre_tema = limpiar_tema(json.loads(resp.choices[0].message.content.strip()).get("tema", lista_subtemas[0]))
-            
-        except Exception:
-            # Fallback: usar el subtema más frecuente
-            nombre_tema = top_subtemas[0] if top_subtemas else "Varios"
+            nombre_tema = limpiar_tema(resp.choices[0].message.content.strip().replace('"','').replace('.',''))
+        except:
+            nombre_tema = lista_subtemas[0] 
         
+        # Corrección de variable de iteración
         for subt in lista_subtemas:
             mapa_tema_final[subt] = nombre_tema
-    
+            
     temas_finales = [mapa_tema_final.get(subt, subt) for subt in subtemas]
     
-    st.info(f"📉 Temas consolidados: {len(set(temas_finales))} categorías finales")
+    st.info(f"📉 Temas consolidados en: {len(set(temas_finales))} categorías")
     p_bar.progress(1.0, "✅ Temas finalizados")
     
     return temas_finales
@@ -1230,7 +1073,7 @@ def main():
                 pwd = st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
     with tab2: render_quick_analysis_tab()
-    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v7.3.0 | 🤖 Realizado por Johnathan Cortés ©️</p></div>", unsafe_allow_html=True)
+    st.markdown("<hr><div style='text-align:center;color:#666;font-size:0.8rem;'><p>v7.2.0 | 🤖 Realizado por Johnathan Cortés ©️</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
