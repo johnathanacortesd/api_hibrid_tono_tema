@@ -42,10 +42,11 @@ SIMILARITY_THRESHOLD_TONO    = 0.92
 SIMILARITY_THRESHOLD_TITULOS = 0.93
 
 UMBRAL_SUBTEMA = 0.82
-UMBRAL_TEMA    = 0.72          # ← Bajado de 0.76 para agrupar más subtemas por tema
-NUM_TEMAS_MAX  = 15            # ← Bajado de 20 para forzar mayor consolidación
+UMBRAL_TEMA    = 0.72
+NUM_TEMAS_MAX  = 15
 
 UMBRAL_DEDUP_LABEL = 0.78
+UMBRAL_FUSION_SUBTEMAS = 0.82   # ← NUEVO: fusión semántica de subtemas similares
 UMBRAL_FUSION_INTERGRUPO = 0.84
 MAX_ITER_FUSION = 5
 
@@ -182,7 +183,7 @@ _TILDE_MAP = {
     "participacion":"participación","colaboracion":"colaboración",
     "asociacion":"asociación","integracion":"integración",
     "relacion":"relación","relaciones":"relaciones",
-    "situacion":"situación","condicion":"condición",
+    "situacion":"situaci��n","condicion":"condición",
     "condiciones":"condiciones","solucion":"solución",
     "soluciones":"soluciones","prevencion":"prevención",
     "proteccion":"protección","fiscalizacion":"fiscalización",
@@ -272,7 +273,7 @@ def corregir_tildes(texto: str) -> str:
 
 
 # ======================================
-# CSS — v16 Visual
+# CSS
 # ======================================
 def load_custom_css():
     st.markdown("""
@@ -1033,7 +1034,7 @@ def _validar_etiqueta_completa(etiqueta, titulos_grp=None, resumenes_grp=None, m
 
 
 # ======================================
-# Deduplicación de etiquetas
+# Deduplicación de etiquetas (textual)
 # ======================================
 def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
     unique = list(dict.fromkeys(etiquetas))
@@ -1080,6 +1081,163 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
             canon[root] = cands[0]
     lm = {unique[i]: canon[find(i)] for i in range(n)}
     return [capitalizar_etiqueta(lm.get(e, e)) for e in etiquetas]
+
+
+# ======================================
+# NUEVO: Fusión semántica de subtemas con LLM
+# ======================================
+def _fusionar_subtemas_semanticos(subtemas, textos_por_subtema, marca, aliases, umbral=UMBRAL_FUSION_SUBTEMAS):
+    """
+    Fase adicional después de dedup_labels: usa embeddings enriquecidos
+    (etiqueta + keywords del contenido) para fusionar subtemas que son
+    variantes semánticas del mismo concepto.
+
+    Ejemplo: "Riesgo de colapso en poste metálico" + "Riesgo por estado del poste"
+    → se fusionan porque semánticamente hablan de lo mismo.
+    """
+    unique_subs = list(dict.fromkeys(subtemas))
+    if len(unique_subs) <= 1:
+        return subtemas
+
+    # ── 1. Construir representaciones enriquecidas ──
+    # Para cada subtema, combinar la etiqueta con keywords de sus textos
+    repr_texts = []
+    for sub in unique_subs:
+        txts = textos_por_subtema.get(sub, [])
+        # Extraer keywords del contenido real
+        palabras = []
+        for t in txts[:20]:
+            for w in string_norm_label(str(t)).split():
+                if len(w) > 3:
+                    palabras.append(w)
+        top_kw = " ".join(w for w, _ in Counter(palabras).most_common(10))
+        # Representación: etiqueta repetida (peso) + keywords
+        repr_texts.append(f"{sub}. {sub}. {sub}. {top_kw}"[:600])
+
+    # ── 2. Embeddings de representaciones enriquecidas ──
+    emb_repr = get_embeddings_batch(repr_texts)
+    valid = [(i, emb_repr[i]) for i in range(len(unique_subs)) if emb_repr[i] is not None]
+
+    if len(valid) < 2:
+        return subtemas
+
+    # ── 3. Clustering con umbral semántico ──
+    v_idx, v_emb = zip(*valid)
+    sim = cosine_similarity(np.array(v_emb))
+
+    n = len(v_idx)
+    parent = list(range(n))
+    def find(x):
+        while parent[x] != x: parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb: parent[rb] = ra
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if find(i) == find(j):
+                continue
+            if sim[i][j] >= umbral:
+                union(i, j)
+
+    # ── 4. Construir grupos y elegir la mejor etiqueta ──
+    grupos = defaultdict(list)
+    for i in range(n):
+        grupos[find(i)].append(v_idx[i])
+
+    # Contar frecuencias originales
+    freq = Counter(subtemas)
+
+    # Para cada grupo, elegir la etiqueta canónica o generar una mejor
+    lm = {}  # mapeo: subtema_original → subtema_canónico
+    for root, members in grupos.items():
+        cands = [unique_subs[m] for m in members]
+
+        if len(cands) == 1:
+            lm[cands[0]] = cands[0]
+            continue
+
+        # Múltiples subtemas fusionados → elegir o generar etiqueta
+        # Primero: intentar elegir la más frecuente y completa
+        valid_complete = [c for c in cands
+                         if c.lower() not in ("sin tema", "varios")
+                         and _frase_esta_completa(c)]
+
+        if valid_complete:
+            # Elegir la más frecuente; en empate, la más larga (más descriptiva)
+            best = max(valid_complete, key=lambda c: (freq.get(c, 0), len(c)))
+        else:
+            best = max(cands, key=lambda c: (freq.get(c, 0), len(c)))
+
+        # Si la mejor candidata cubre bien a todas, usarla
+        # Si no, pedir al LLM que unifique
+        if len(cands) <= 3:
+            # Para pocos candidatos, verificar si vale la pena regenerar
+            # usando LLM para generar una etiqueta que cubra todos
+            unified = _unificar_subtemas_llm(cands, textos_por_subtema, marca, aliases)
+            if unified and _frase_esta_completa(unified):
+                best = unified
+
+        for c in cands:
+            lm[c] = capitalizar_etiqueta(best)
+
+    return [lm.get(s, s) for s in subtemas]
+
+
+def _unificar_subtemas_llm(subtemas_a_unificar, textos_por_subtema, marca, aliases):
+    """
+    Dado un grupo de subtemas que son variantes del mismo concepto,
+    genera una etiqueta unificada que los cubra a todos.
+    """
+    subs_str = "\n".join(f"  · {s}" for s in subtemas_a_unificar)
+
+    # Recopilar keywords de los textos
+    all_kw = []
+    for sub in subtemas_a_unificar:
+        for t in textos_por_subtema.get(sub, [])[:5]:
+            for w in string_norm_label(str(t)).split():
+                if len(w) > 3:
+                    all_kw.append(w)
+    kw_str = " · ".join(w for w, _ in Counter(all_kw).most_common(8))
+
+    prompt = (
+        "Estos subtemas son variaciones del MISMO tema. Genera UN subtema unificado "
+        "en español (3-6 palabras) que los cubra a todos.\n\n"
+        f"SUBTEMAS A UNIFICAR:\n{subs_str}\n\n"
+        f"PALABRAS CLAVE: {kw_str}\n\n"
+        "REGLAS:\n"
+        "1. Frase coherente, específica, que abarque todos los subtemas\n"
+        "2. NO uses nombres de empresas, marcas ni ciudades\n"
+        "3. Tildes correctas. Primera letra mayúscula\n"
+        "4. Debe terminar en SUSTANTIVO o ADJETIVO\n"
+        "5. Mantén el nivel de especificidad (NO generalices demasiado)\n\n"
+        "EJEMPLO:\n"
+        "  Input: 'Riesgo de colapso en poste metálico', 'Riesgo por estado del poste'\n"
+        "  Output: 'Riesgo en infraestructura de postes'\n\n"
+        'JSON: {"subtema":"..."}'
+    )
+    try:
+        resp = call_with_retries(
+            openai.ChatCompletion.create,
+            model=OPENAI_MODEL_CLASIFICACION,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=80,
+            temperature=0.05,
+            response_format={"type": "json_object"}
+        )
+        u = resp.get('usage', {}) if isinstance(resp, dict) else getattr(resp, 'usage', {})
+        if u:
+            st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u, dict) else getattr(u, 'prompt_tokens', 0)) or 0
+            st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u, dict) else getattr(u, 'completion_tokens', 0)) or 0
+        raw = json.loads(resp.choices[0].message.content).get("subtema", "")
+        if raw:
+            cleaned = limpiar_tema_geografico(limpiar_tema(raw), marca, aliases)
+            return cleaned
+    except:
+        pass
+    return None
+
 
 # ======================================
 # Embeddings con caché
@@ -1466,15 +1624,29 @@ class ClasificadorSubtema:
         pbar.progress(0.55,f"Fase 4 · Etiquetando {ng} grupos...")
         mapa={}; sg=sorted(gf.items(),key=lambda x:-len(x[1]))
         for k,(lid,idxs) in enumerate(sg):
-            if k%10==0: pbar.progress(0.55+0.30*(k/max(ng,1)),f"Etiquetando {k+1}/{ng}...")
+            if k%10==0: pbar.progress(0.55+0.25*(k/max(ng,1)),f"Etiquetando {k+1}/{ng}...")
             e=self._generar_etiqueta([textos[i] for i in idxs],[titulos[i] for i in idxs],[resumenes[i] for i in idxs])
             for i in idxs: mapa[i]=e
         subtemas=[mapa.get(i,"Varios") for i in range(n)]
-        pbar.progress(0.88,"Fase 5 · Deduplicando...")
+        pbar.progress(0.82,"Fase 5 · Deduplicando textual...")
         subtemas=dedup_labels(subtemas,UMBRAL_DEDUP_LABEL)
-        pbar.progress(0.93,"Fase 6 · Consistencia...")
+
+        # ── FASE 5b NUEVA: Fusión semántica de subtemas ──
+        pbar.progress(0.86,"Fase 5b · Fusión semántica subtemas...")
+        textos_por_sub = defaultdict(list)
+        for i, s in enumerate(subtemas):
+            textos_por_sub[s].append(textos[i])
+        n_antes = len(set(subtemas))
+        subtemas = _fusionar_subtemas_semanticos(
+            subtemas, textos_por_sub, self.marca, self.aliases, UMBRAL_FUSION_SUBTEMAS
+        )
+        n_despues = len(set(subtemas))
+        if n_antes != n_despues:
+            pbar.progress(0.89, f"Fusión semántica: {n_antes} → {n_despues} subtemas")
+
+        pbar.progress(0.90,"Fase 6 · Consistencia...")
         subtemas=self._consistencia(subtemas,ae,pbar)
-        pbar.progress(0.96,"Fase 7 · Validando completitud...")
+        pbar.progress(0.95,"Fase 7 · Validando completitud...")
         subtemas = self._validar_completitud_final(subtemas, textos, titulos, resumenes)
         subtemas=[capitalizar_etiqueta(s) for s in subtemas]
         nf=len(set(subtemas)); pbar.progress(1.0,f"{nf} subtemas")
@@ -1534,44 +1706,28 @@ class ClasificadorSubtema:
         return r
 
 # ======================================
-# TEMAS — v16: Agrupación inteligente basada en contenido + subtemas
+# TEMAS — Agrupación inteligente
 # ======================================
 
 def _construir_representacion_grupo(subtema, textos_grupo, max_textos=30):
-    """
-    Construye una representación enriquecida de un grupo de subtema
-    combinando el nombre del subtema con keywords extraídas de los textos.
-    Esto permite que el clustering de temas use información del contenido real.
-    """
-    # Extraer keywords frecuentes de los textos del grupo
     palabras = []
     for t in textos_grupo[:max_textos]:
         for w in string_norm_label(str(t)).split():
             if len(w) > 3:
                 palabras.append(w)
     top_kw = [w for w, _ in Counter(palabras).most_common(12)]
-    # Representación: subtema repetido (peso) + keywords del contenido
     kw_str = " ".join(top_kw)
     return f"{subtema}. {subtema}. {kw_str}"[:500]
 
 
 def _generar_nombre_tema_llm(subtemas_grupo, textos_muestra, titulos_muestra):
-    """
-    Genera un nombre de TEMA que sea más general/abstracto que los subtemas
-    que agrupa, usando tanto los subtemas como muestras de texto real.
-    """
-    # Preparar subtemas
     subs_list = "\n".join(f"  · {s}" for s in subtemas_grupo[:12])
-
-    # Extraer keywords de los textos para dar contexto
     palabras = []
     for t in titulos_muestra[:15]:
         for w in string_norm_label(str(t)).split():
             if len(w) > 3:
                 palabras.append(w)
     kw = " · ".join(w for w, _ in Counter(palabras).most_common(10))
-
-    # Muestras de títulos reales
     tit_muestra = "\n".join(f"  · {t[:100]}" for t in list(dict.fromkeys(titulos_muestra))[:8])
 
     prompt = (
@@ -1619,25 +1775,19 @@ def _generar_nombre_tema_llm(subtemas_grupo, textos_muestra, titulos_muestra):
 
 
 def _tema_es_igual_a_subtema(tema, subtemas_grupo):
-    """Verifica si el tema generado es esencialmente igual a algún subtema del grupo."""
     tn = string_norm_label(tema)
     for sub in subtemas_grupo:
         sn = string_norm_label(sub)
         if not tn or not sn:
             continue
-        # Similitud textual
         if SequenceMatcher(None, tn, sn).ratio() >= 0.80:
             return True
-        # Uno contiene al otro
         if tn in sn or sn in tn:
             return True
     return False
 
 
 def _regenerar_tema_diferente(subtemas_grupo, titulos_muestra, intento=0):
-    """
-    Regenera un nombre de tema asegurándose de que sea diferente a los subtemas.
-    """
     subs_list = ", ".join(subtemas_grupo[:8])
     prompt = (
         f"Los siguientes son subtemas específicos de noticias:\n{subs_list}\n\n"
@@ -1670,13 +1820,6 @@ def _regenerar_tema_diferente(subtemas_grupo, titulos_muestra, intento=0):
 
 
 def consolidar_temas(subtemas, textos, pbar):
-    """
-    Versión mejorada: agrupa subtemas en temas más generales usando:
-    1. Embeddings enriquecidos (subtema + keywords del contenido real)
-    2. Clustering con umbral más agresivo para producir menos temas
-    3. Generación de nombres de tema que son categorías generales, NO repeticiones de subtemas
-    4. Validación post-proceso para asegurar tema ≠ subtema
-    """
     pbar.progress(0.05, "Preparando agrupación de temas...")
 
     df = pd.DataFrame({'subtema': subtemas, 'texto': textos})
@@ -1686,15 +1829,13 @@ def consolidar_temas(subtemas, textos, pbar):
         pbar.progress(1.0, "Un tema")
         return [capitalizar_etiqueta(s) for s in subtemas]
 
-    # ── Paso 1: Construir representaciones enriquecidas por subtema ──
+    # ── Paso 1: Representaciones enriquecidas ──
     pbar.progress(0.10, "Construyendo representaciones enriquecidas...")
 
-    # Recopilar textos y títulos por subtema
     textos_por_subtema = defaultdict(list)
     for i, sub in enumerate(subtemas):
         textos_por_subtema[sub].append(textos[i])
 
-    # Representaciones enriquecidas: subtema + keywords del contenido
     repr_enriquecidas = []
     for sub in us:
         repr_enriquecidas.append(
@@ -1704,13 +1845,9 @@ def consolidar_temas(subtemas, textos, pbar):
     # ── Paso 2: Embeddings duales ──
     pbar.progress(0.20, "Calculando embeddings de contenido...")
 
-    # Embeddings de las representaciones enriquecidas (contenido + subtema)
     emb_repr = get_embeddings_batch(repr_enriquecidas)
-
-    # Embeddings de las etiquetas de subtema puras
     emb_labels = get_embeddings_batch(us)
 
-    # Centroides de contenido real por subtema
     ae = get_embeddings_batch(textos)
     centroids_contenido = {}
     for sub in us:
@@ -1719,7 +1856,7 @@ def consolidar_temas(subtemas, textos, pbar):
         if vecs:
             centroids_contenido[sub] = np.mean(vecs, axis=0)
 
-    # ── Paso 3: Construir matriz de similitud combinada ──
+    # ── Paso 3: Matriz de similitud combinada ──
     pbar.progress(0.35, "Calculando similitudes combinadas...")
 
     vs = [s for s in us if s in centroids_contenido]
@@ -1727,40 +1864,27 @@ def consolidar_temas(subtemas, textos, pbar):
         pbar.progress(1.0, "Sin agrupación")
         return [capitalizar_etiqueta(s) for s in subtemas]
 
-    # Matrices individuales
     idx_map = {s: i for i, s in enumerate(us)}
 
-    # Similitud por contenido real (centroides de noticias)
     M_content = np.array([centroids_contenido[s] for s in vs])
     sim_content = cosine_similarity(M_content)
 
-    # Similitud por representación enriquecida
-    M_repr = np.array([emb_repr[idx_map[s]] for s in vs
-                        if emb_repr[idx_map[s]] is not None])
     has_repr = all(emb_repr[idx_map[s]] is not None for s in vs)
-
-    # Similitud por etiqueta
-    M_label = np.array([emb_labels[idx_map[s]] for s in vs
-                         if emb_labels[idx_map[s]] is not None])
     has_label = all(emb_labels[idx_map[s]] is not None for s in vs)
 
-    # Combinar: peso principal al contenido, menor peso a etiquetas
-    # Esto evita que subtemas con nombres similares pero contenido diferente se fusionen
     if has_repr and has_label:
-        sim_repr = cosine_similarity(M_repr)
-        sim_label = cosine_similarity(M_label)
-        # 50% contenido real + 35% representación enriquecida + 15% etiqueta
+        sim_repr = cosine_similarity(np.array([emb_repr[idx_map[s]] for s in vs]))
+        sim_label = cosine_similarity(np.array([emb_labels[idx_map[s]] for s in vs]))
         sim_combined = 0.50 * sim_content + 0.35 * sim_repr + 0.15 * sim_label
     elif has_repr:
-        sim_repr = cosine_similarity(M_repr)
+        sim_repr = cosine_similarity(np.array([emb_repr[idx_map[s]] for s in vs]))
         sim_combined = 0.60 * sim_content + 0.40 * sim_repr
     else:
         sim_combined = sim_content
 
-    # ── Paso 4: Clustering jerárquico ──
+    # ── Paso 4: Clustering ──
     pbar.progress(0.45, "Clustering de temas...")
 
-    # Usar el umbral UMBRAL_TEMA (0.72) para agrupar más agresivamente
     dist_matrix = 1 - sim_combined
     np.fill_diagonal(dist_matrix, 0)
     dist_matrix = np.clip(dist_matrix, 0, 2)
@@ -1774,7 +1898,6 @@ def consolidar_temas(subtemas, textos, pbar):
 
     n_clusters = len(set(cl.labels_))
 
-    # Forzar máximo de temas
     if n_clusters > NUM_TEMAS_MAX:
         cl = AgglomerativeClustering(
             n_clusters=NUM_TEMAS_MAX,
@@ -1782,29 +1905,25 @@ def consolidar_temas(subtemas, textos, pbar):
             linkage='average'
         ).fit(dist_matrix)
 
-    # Construir grupos de subtemas por cluster
     clusters = defaultdict(list)
     for i, lbl in enumerate(cl.labels_):
         clusters[lbl].append(vs[i])
 
-    # Agregar subtemas sin centroide al cluster más cercano
     uc = [s for s in us if s not in vs]
     mt = {}
     tc = len(clusters)
 
-    # ── Paso 5: Generar nombres de temas (diferentes a subtemas) ──
+    # ── Paso 5: Nombres de temas ──
     pbar.progress(0.50, f"Generando nombres para {tc} temas...")
 
     for k, (cid, subtemas_cluster) in enumerate(clusters.items()):
         pbar.progress(0.50 + 0.35 * (k / max(tc, 1)), f"Tema {k + 1}/{tc}...")
 
-        # Recopilar títulos de las noticias de este cluster para contexto
         titulos_cluster = []
         textos_cluster = []
         for sub in subtemas_cluster:
             idxs = df.index[df['subtema'] == sub].tolist()
             for idx in idxs[:10]:
-                # Extraer título del texto (primera oración antes del punto)
                 txt = str(textos[idx])
                 partes = txt.split('. ')
                 if partes:
@@ -1812,46 +1931,36 @@ def consolidar_temas(subtemas, textos, pbar):
                 textos_cluster.append(txt[:200])
 
         if len(subtemas_cluster) == 1:
-            # Un solo subtema en el cluster → el tema debe ser más general
             sub_unico = subtemas_cluster[0]
-            # Intentar generar un tema más amplio
             nombre = _generar_nombre_tema_llm(
                 subtemas_cluster, textos_cluster, titulos_cluster
             )
             if nombre and not _tema_es_igual_a_subtema(nombre, subtemas_cluster):
-                # Éxito: tenemos un tema diferente
                 pass
             else:
-                # Generalizar el subtema: subir un nivel de abstracción
                 nombre = _regenerar_tema_diferente(subtemas_cluster, titulos_cluster)
                 if nombre and not _tema_es_igual_a_subtema(nombre, subtemas_cluster):
                     pass
                 else:
-                    # Último recurso: abreviar el subtema para hacerlo más general
                     p = sub_unico.split()
                     if len(p) > 3:
                         nombre = _recortar_frase_completa(" ".join(p), max_palabras=3)
                         if nombre == sub_unico or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
-                            nombre = sub_unico  # Aceptar igual como último recurso
+                            nombre = sub_unico
                     else:
                         nombre = sub_unico
         else:
-            # Múltiples subtemas → generar nombre de tema con LLM
             nombre = _generar_nombre_tema_llm(
                 subtemas_cluster, textos_cluster, titulos_cluster
             )
 
-            # Verificar que el tema no sea igual a ningún subtema
             if not nombre or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
-                # Reintentar con prompt diferente
                 nombre = _regenerar_tema_diferente(subtemas_cluster, titulos_cluster)
 
             if not nombre or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
-                # Segundo reintento
                 nombre = _regenerar_tema_diferente(subtemas_cluster, titulos_cluster, intento=1)
 
             if not nombre or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
-                # Fallback: usar keywords comunes de los subtemas
                 all_words = []
                 for sub in subtemas_cluster:
                     for w in string_norm_label(sub).split():
@@ -1863,7 +1972,6 @@ def consolidar_temas(subtemas, textos, pbar):
                 else:
                     nombre = subtemas_cluster[0]
 
-        # Validar completitud
         if not _frase_esta_completa(nombre):
             nombre = _recortar_frase_completa(nombre, max_palabras=4)
             if not _frase_esta_completa(nombre):
@@ -1876,22 +1984,17 @@ def consolidar_temas(subtemas, textos, pbar):
         for sub in subtemas_cluster:
             mt[sub] = nombre
 
-    # Asignar subtemas sin centroide
     for sub in uc:
         mt[sub] = capitalizar_etiqueta(sub)
 
-    # ── Paso 6: Construir resultado ──
     tf = [mt.get(sub, sub) for sub in subtemas]
 
-    # ── Paso 7: Deduplicar temas resultantes ──
     pbar.progress(0.88, "Deduplicando temas...")
     tf = dedup_labels(tf, UMBRAL_DEDUP_LABEL)
 
-    # ── Paso 8: Validación final tema ≠ subtema ──
     pbar.progress(0.92, "Validando diferenciación tema/subtema...")
     tf = _post_validar_tema_vs_subtema(tf, subtemas)
 
-    # ── Paso 9: Validación de completitud ──
     pbar.progress(0.95, "Validando completitud de temas...")
     tf_validados = []
     for t in tf:
@@ -1913,16 +2016,10 @@ def consolidar_temas(subtemas, textos, pbar):
 
 
 def _post_validar_tema_vs_subtema(temas, subtemas):
-    """
-    Pase final: si un tema es textualmente igual o muy similar a su subtema,
-    intenta diferenciarlo generalizándolo.
-    """
-    # Mapear qué subtemas tiene cada tema
     tema_a_subtemas = defaultdict(set)
     for t, s in zip(temas, subtemas):
         tema_a_subtemas[t].add(s)
 
-    # Detectar temas que son iguales a su único subtema
     reemplazos = {}
     for tema, subs in tema_a_subtemas.items():
         if len(subs) == 1:
@@ -1930,7 +2027,6 @@ def _post_validar_tema_vs_subtema(temas, subtemas):
             tn = string_norm_label(tema)
             sn = string_norm_label(sub_unico)
             if tn and sn and SequenceMatcher(None, tn, sn).ratio() >= 0.80:
-                # Tema ≈ Subtema → intentar generalizar
                 nuevo = _regenerar_tema_diferente([sub_unico], [])
                 if nuevo and not _tema_es_igual_a_subtema(nuevo, [sub_unico]):
                     if _frase_esta_completa(nuevo):
@@ -2195,7 +2291,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Sistema de Análisis de Noticias</div>
-            <div class="app-header-version">v16.0 · temas ≠ subtemas · agrupación inteligente</div>
+            <div class="app-header-version">v16.1 · fusión semántica de subtemas · temas ≠ subtemas</div>
         </div>
         <div class="app-header-badge">IA Powered</div>
     </div>""",unsafe_allow_html=True)
@@ -2248,7 +2344,7 @@ def main():
                 <div class="cluster-info">
                   <b>Parámetros de clustering</b><br>
                   Subtema = {UMBRAL_SUBTEMA} · Tema = {UMBRAL_TEMA} · Máx. temas = {NUM_TEMAS_MAX} ·
-                  Fusión = {UMBRAL_FUSION_INTERGRUPO} · Dedup = {UMBRAL_DEDUP_LABEL}
+                  Fusión inter = {UMBRAL_FUSION_INTERGRUPO} · Fusión sem. = {UMBRAL_FUSION_SUBTEMAS} · Dedup = {UMBRAL_DEDUP_LABEL}
                 </div>""",unsafe_allow_html=True)
 
                 if st.form_submit_button("Iniciar análisis completo",use_container_width=True,type="primary"):
@@ -2275,6 +2371,6 @@ def main():
                 pwd=st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct=pwd; st.rerun()
 
     with tab2: render_quick_tab()
-    st.markdown('<div class="footer">v16.0.0 · Sistema de Análisis de Noticias con IA · Realizado por Johnathan Cortés ©</div>',unsafe_allow_html=True)
+    st.markdown('<div class="footer">v16.1.0 · Sistema de Análisis de Noticias con IA · Realizado por Johnathan Cortés ©</div>',unsafe_allow_html=True)
 
 if __name__=="__main__": main()
