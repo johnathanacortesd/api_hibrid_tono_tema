@@ -42,8 +42,8 @@ SIMILARITY_THRESHOLD_TONO    = 0.92
 SIMILARITY_THRESHOLD_TITULOS = 0.93
 
 UMBRAL_SUBTEMA = 0.82
-UMBRAL_TEMA    = 0.76
-NUM_TEMAS_MAX  = 20
+UMBRAL_TEMA    = 0.72          # ← Bajado de 0.76 para agrupar más subtemas por tema
+NUM_TEMAS_MAX  = 15            # ← Bajado de 20 para forzar mayor consolidación
 
 UMBRAL_DEDUP_LABEL = 0.78
 UMBRAL_FUSION_INTERGRUPO = 0.84
@@ -100,7 +100,6 @@ todas ser haber hacer tener poder deber ir dar ver saber querer llegar pasar
 encontrar creer decir poner salir volver seguir llevar sentir cambiar
 """.split())
 
-# Palabras que NO pueden terminar una frase temática (dejan la frase incompleta)
 _TRAILING_INCOMPLETE = {
     "de","del","la","el","los","las","un","una","unos","unas","al","su","sus",
     "en","con","sin","por","para","sobre","ante","bajo","contra","desde",
@@ -273,7 +272,7 @@ def corregir_tildes(texto: str) -> str:
 
 
 # ======================================
-# CSS — v15 Visual Overhaul
+# CSS — v16 Visual
 # ======================================
 def load_custom_css():
     st.markdown("""
@@ -897,30 +896,24 @@ def capitalizar_etiqueta(tema):
 
 
 def _frase_esta_completa(texto):
-    """Verifica que una frase temática no termina en palabra incompleta."""
     if not texto or not texto.strip():
         return False
     palabras = texto.strip().split()
     if not palabras:
         return False
     ultima = palabras[-1].lower().rstrip(".,;:!?")
-    # Remover tildes para comparar
     ultima_norm = unidecode(ultima)
     return ultima_norm not in _TRAILING_INCOMPLETE and len(ultima) > 1
 
 
 def _recortar_frase_completa(texto, max_palabras=7):
-    """Recorta a max_palabras pero asegura que la frase termine en palabra sustantiva."""
     if not texto:
         return "Sin tema"
     palabras = texto.strip().split()
-    # Primero recortar al máximo
     if len(palabras) > max_palabras:
         palabras = palabras[:max_palabras]
-    # Ahora quitar palabras finales que dejan la frase incompleta
     while palabras and unidecode(palabras[-1].lower().rstrip(".,;:!?")) in _TRAILING_INCOMPLETE:
         palabras.pop()
-    # Si quedó vacío o solo 1 palabra muy corta, devolver lo que había
     if not palabras:
         return texto.strip().split()[0] if texto.strip() else "Sin tema"
     return " ".join(palabras)
@@ -931,7 +924,6 @@ def limpiar_tema(tema):
     tema = tema.strip().strip('"\'')
     for px in ["subtema:","tema:","categoría:","categoria:","category:"]:
         if tema.lower().startswith(px): tema = tema[len(px):].strip()
-    # Recortar de forma segura (no dejar frases incompletas)
     tema = _recortar_frase_completa(tema, max_palabras=7)
     return capitalizar_etiqueta(tema) if tema else "Sin tema"
 
@@ -988,25 +980,18 @@ def texto_para_embedding(titulo,resumen,max_len=1800):
 # Validación de etiquetas completas
 # ======================================
 def _validar_etiqueta_completa(etiqueta, titulos_grp=None, resumenes_grp=None, marca="", aliases=None, fallback_fn=None):
-    """
-    Valida que una etiqueta sea una frase completa.
-    Si no lo es, intenta regenerarla o usa fallback.
-    """
     if not etiqueta or etiqueta.strip().lower() in ("sin tema", "varios", "n/a"):
         if fallback_fn:
             return fallback_fn(titulos_grp or [])
         return "Cobertura informativa general"
 
-    # Verificar completitud
     if _frase_esta_completa(etiqueta):
         return etiqueta
 
-    # La frase está incompleta - intentar arreglar recortando
     recortada = _recortar_frase_completa(etiqueta, max_palabras=7)
     if _frase_esta_completa(recortada) and len(recortada.split()) >= 2:
         return capitalizar_etiqueta(recortada)
 
-    # Si recortar no funcionó, regenerar con LLM
     if titulos_grp and len(titulos_grp) > 0:
         try:
             prompt = (
@@ -1042,7 +1027,6 @@ def _validar_etiqueta_completa(etiqueta, titulos_grp=None, resumenes_grp=None, m
         except:
             pass
 
-    # Último recurso: fallback
     if fallback_fn:
         return fallback_fn(titulos_grp or [])
     return capitalizar_etiqueta(recortada) if recortada and len(recortada.split()) >= 2 else "Cobertura informativa general"
@@ -1081,17 +1065,14 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
     canon = {}
     for root, members in grupos.items():
         cands = [unique[m] for m in members]
-        # Filtrar candidatos que sean frases completas
         valid_complete = [c for c in cands
                          if c.lower() not in ("sin tema", "varios")
                          and _frase_esta_completa(c)]
         valid_any = [c for c in cands if c.lower() not in ("sin tema", "varios")]
 
         if valid_complete:
-            # Preferir la más frecuente entre las completas
             canon[root] = max(valid_complete, key=lambda c: (freq[c], len(c)))
         elif valid_any:
-            # Si ninguna está completa, recortar la mejor candidata
             best = max(valid_any, key=lambda c: (freq[c], len(c)))
             recortada = _recortar_frase_completa(best)
             canon[root] = recortada if _frase_esta_completa(recortada) else best
@@ -1415,7 +1396,6 @@ class ClasificadorSubtema:
             genericas={"gestión","gestion","actividades","acciones","noticias","información","informacion","eventos","varios","sin tema","actividad corporativa","noticias corporativas","gestión empresarial","cobertura informativa","gestión integral"}
             if string_norm_label(et) in {string_norm_label(g) for g in genericas} or len(et.split())<2:
                 et=self._refinar(tm,kw,rm)
-            # Validar completitud
             et = _validar_etiqueta_completa(
                 et,
                 titulos_grp=titulos_grp,
@@ -1448,7 +1428,6 @@ class ClasificadorSubtema:
                 st.session_state['tokens_output']+=(u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
             raw = json.loads(resp.choices[0].message.content).get("subtema","Varios")
             et = limpiar_tema_geografico(limpiar_tema(raw),self.marca,self.aliases)
-            # Validar completitud del resultado refinado
             if not _frase_esta_completa(et):
                 et = _recortar_frase_completa(et)
                 if not _frase_esta_completa(et):
@@ -1465,11 +1444,9 @@ class ClasificadorSubtema:
         if palabras:
             top=[w for w,_ in Counter(palabras).most_common(3)]
             if len(top)>=2:
-                # Construir frase y verificar completitud
                 frase = f"{top[0]} de {top[1]}"
                 if _frase_esta_completa(frase):
                     return capitalizar_etiqueta(frase)
-                # Si "de X" no funciona, concatenar como adjetivo
                 return capitalizar_etiqueta(f"{top[0]} {top[1]}")
             return capitalizar_etiqueta(top[0])
         return "Cobertura informativa general"
@@ -1497,7 +1474,6 @@ class ClasificadorSubtema:
         subtemas=dedup_labels(subtemas,UMBRAL_DEDUP_LABEL)
         pbar.progress(0.93,"Fase 6 · Consistencia...")
         subtemas=self._consistencia(subtemas,ae,pbar)
-        # Fase 7: Validación final de completitud
         pbar.progress(0.96,"Fase 7 · Validando completitud...")
         subtemas = self._validar_completitud_final(subtemas, textos, titulos, resumenes)
         subtemas=[capitalizar_etiqueta(s) for s in subtemas]
@@ -1505,8 +1481,6 @@ class ClasificadorSubtema:
         st.info(f"Subtemas: **{nf}** · Grupos: **{ng}**"); return subtemas
 
     def _validar_completitud_final(self, subtemas, textos, titulos, resumenes):
-        """Pase final: detecta y repara etiquetas que terminan en preposición/artículo."""
-        # Agrupar por subtema para tener contexto
         por_subtema = defaultdict(list)
         for i, s in enumerate(subtemas):
             por_subtema[s].append(i)
@@ -1515,13 +1489,11 @@ class ClasificadorSubtema:
         for sub, idxs in por_subtema.items():
             if _frase_esta_completa(sub):
                 continue
-            # Intentar recortar
             recortada = _recortar_frase_completa(sub)
             if _frase_esta_completa(recortada) and len(recortada.split()) >= 2:
                 for i in idxs:
                     resultado[i] = capitalizar_etiqueta(recortada)
                 continue
-            # Regenerar con contexto
             tit_grp = [titulos[i] for i in idxs[:6]]
             res_grp = [resumenes[i] for i in idxs[:3]]
             nueva = _validar_etiqueta_completa(
@@ -1562,81 +1534,413 @@ class ClasificadorSubtema:
         return r
 
 # ======================================
-# TEMAS
+# TEMAS — v16: Agrupación inteligente basada en contenido + subtemas
 # ======================================
-def consolidar_temas(subtemas,textos,pbar):
-    pbar.progress(0.05,"Centroides...")
-    df=pd.DataFrame({'subtema':subtemas,'texto':textos}); us=list(df['subtema'].unique())
-    if len(us)<=1: pbar.progress(1.0,"Un tema"); return [capitalizar_etiqueta(s) for s in subtemas]
-    ae=get_embeddings_batch(textos); centroids={}
+
+def _construir_representacion_grupo(subtema, textos_grupo, max_textos=30):
+    """
+    Construye una representación enriquecida de un grupo de subtema
+    combinando el nombre del subtema con keywords extraídas de los textos.
+    Esto permite que el clustering de temas use información del contenido real.
+    """
+    # Extraer keywords frecuentes de los textos del grupo
+    palabras = []
+    for t in textos_grupo[:max_textos]:
+        for w in string_norm_label(str(t)).split():
+            if len(w) > 3:
+                palabras.append(w)
+    top_kw = [w for w, _ in Counter(palabras).most_common(12)]
+    # Representación: subtema repetido (peso) + keywords del contenido
+    kw_str = " ".join(top_kw)
+    return f"{subtema}. {subtema}. {kw_str}"[:500]
+
+
+def _generar_nombre_tema_llm(subtemas_grupo, textos_muestra, titulos_muestra):
+    """
+    Genera un nombre de TEMA que sea más general/abstracto que los subtemas
+    que agrupa, usando tanto los subtemas como muestras de texto real.
+    """
+    # Preparar subtemas
+    subs_list = "\n".join(f"  · {s}" for s in subtemas_grupo[:12])
+
+    # Extraer keywords de los textos para dar contexto
+    palabras = []
+    for t in titulos_muestra[:15]:
+        for w in string_norm_label(str(t)).split():
+            if len(w) > 3:
+                palabras.append(w)
+    kw = " · ".join(w for w, _ in Counter(palabras).most_common(10))
+
+    # Muestras de títulos reales
+    tit_muestra = "\n".join(f"  · {t[:100]}" for t in list(dict.fromkeys(titulos_muestra))[:8])
+
+    prompt = (
+        "Eres un editor de noticias. Debes crear UNA categoría temática GENERAL (2-4 palabras) "
+        "que agrupe lógicamente los siguientes subtemas.\n\n"
+        f"SUBTEMAS A AGRUPAR:\n{subs_list}\n\n"
+        f"TÍTULOS DE EJEMPLO:\n{tit_muestra}\n\n"
+        f"PALABRAS CLAVE: {kw}\n\n"
+        "REGLAS CRÍTICAS:\n"
+        "1. El tema DEBE ser MÁS GENERAL que los subtemas individuales\n"
+        "2. NO repitas textualmente ningún subtema — el tema es la CATEGORÍA que los contiene\n"
+        "3. Usa 2-4 palabras, frase coherente en español\n"
+        "4. NO uses nombres de empresas, marcas, personas ni ciudades\n"
+        "5. Tildes correctas, primera letra mayúscula\n"
+        "6. DEBE terminar en SUSTANTIVO o ADJETIVO\n"
+        "7. Piensa en secciones de periódico: 'Economía', 'Sector financiero', "
+        "'Transformación digital', 'Responsabilidad social', 'Regulación sectorial'\n\n"
+        "EJEMPLO:\n"
+        "  Subtemas: 'Tasas de interés hipotecarias', 'Créditos de consumo', 'Microcréditos rurales'\n"
+        "  Tema correcto: 'Productos crediticios'\n"
+        "  Tema INCORRECTO: 'Tasas de interés hipotecarias' (es un subtema, no un tema)\n\n"
+        "  Subtemas: 'Apertura de sucursal', 'Nueva app móvil', 'Alianza con fintech'\n"
+        "  Tema correcto: 'Expansión y canales'\n"
+        "  Tema INCORRECTO: 'Apertura de sucursal' (es un subtema)\n\n"
+        'Responde SOLO JSON: {"tema":"..."}'
+    )
+    try:
+        resp = call_with_retries(
+            openai.ChatCompletion.create,
+            model=OPENAI_MODEL_CLASIFICACION,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=60,
+            temperature=0.05,
+            response_format={"type": "json_object"}
+        )
+        u = resp.get('usage', {}) if isinstance(resp, dict) else getattr(resp, 'usage', {})
+        if u:
+            st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u, dict) else getattr(u, 'prompt_tokens', 0)) or 0
+            st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u, dict) else getattr(u, 'completion_tokens', 0)) or 0
+        nombre = json.loads(resp.choices[0].message.content).get("tema", "")
+        nombre = limpiar_tema(nombre.strip().replace('"', '').replace('.', ''))
+        return nombre
+    except:
+        return None
+
+
+def _tema_es_igual_a_subtema(tema, subtemas_grupo):
+    """Verifica si el tema generado es esencialmente igual a algún subtema del grupo."""
+    tn = string_norm_label(tema)
+    for sub in subtemas_grupo:
+        sn = string_norm_label(sub)
+        if not tn or not sn:
+            continue
+        # Similitud textual
+        if SequenceMatcher(None, tn, sn).ratio() >= 0.80:
+            return True
+        # Uno contiene al otro
+        if tn in sn or sn in tn:
+            return True
+    return False
+
+
+def _regenerar_tema_diferente(subtemas_grupo, titulos_muestra, intento=0):
+    """
+    Regenera un nombre de tema asegurándose de que sea diferente a los subtemas.
+    """
+    subs_list = ", ".join(subtemas_grupo[:8])
+    prompt = (
+        f"Los siguientes son subtemas específicos de noticias:\n{subs_list}\n\n"
+        "Genera UNA categoría GENERAL (2-3 palabras) que los agrupe a TODOS.\n"
+        f"La categoría NO puede ser igual o muy similar a ninguno de los subtemas listados.\n"
+        "Piensa en una sección de periódico o categoría editorial.\n\n"
+        "Ejemplos de categorías generales: 'Sector financiero', 'Innovación tecnológica', "
+        "'Gestión corporativa', 'Mercado laboral', 'Política económica', "
+        "'Sostenibilidad ambiental', 'Servicios digitales'\n\n"
+        "REGLAS: 2-3 palabras, tildes correctas, terminar en sustantivo/adjetivo.\n\n"
+        'JSON: {"tema":"..."}'
+    )
+    try:
+        resp = call_with_retries(
+            openai.ChatCompletion.create,
+            model=OPENAI_MODEL_CLASIFICACION,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=50,
+            temperature=0.2 + intento * 0.1,
+            response_format={"type": "json_object"}
+        )
+        u = resp.get('usage', {}) if isinstance(resp, dict) else getattr(resp, 'usage', {})
+        if u:
+            st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u, dict) else getattr(u, 'prompt_tokens', 0)) or 0
+            st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u, dict) else getattr(u, 'completion_tokens', 0)) or 0
+        nombre = json.loads(resp.choices[0].message.content).get("tema", "")
+        return limpiar_tema(nombre.strip().replace('"', '').replace('.', ''))
+    except:
+        return None
+
+
+def consolidar_temas(subtemas, textos, pbar):
+    """
+    Versión mejorada: agrupa subtemas en temas más generales usando:
+    1. Embeddings enriquecidos (subtema + keywords del contenido real)
+    2. Clustering con umbral más agresivo para producir menos temas
+    3. Generación de nombres de tema que son categorías generales, NO repeticiones de subtemas
+    4. Validación post-proceso para asegurar tema ≠ subtema
+    """
+    pbar.progress(0.05, "Preparando agrupación de temas...")
+
+    df = pd.DataFrame({'subtema': subtemas, 'texto': textos})
+    us = list(df['subtema'].unique())
+
+    if len(us) <= 1:
+        pbar.progress(1.0, "Un tema")
+        return [capitalizar_etiqueta(s) for s in subtemas]
+
+    # ── Paso 1: Construir representaciones enriquecidas por subtema ──
+    pbar.progress(0.10, "Construyendo representaciones enriquecidas...")
+
+    # Recopilar textos y títulos por subtema
+    textos_por_subtema = defaultdict(list)
+    for i, sub in enumerate(subtemas):
+        textos_por_subtema[sub].append(textos[i])
+
+    # Representaciones enriquecidas: subtema + keywords del contenido
+    repr_enriquecidas = []
     for sub in us:
-        idxs=df.index[df['subtema']==sub].tolist()[:40]
-        vecs=[ae[i] for i in idxs if ae[i] is not None]
-        if vecs: centroids[sub]=np.mean(vecs,axis=0)
-    ler=get_embeddings_batch(us); le={s:e for s,e in zip(us,ler) if e is not None}
-    vs=[s for s in us if s in centroids]
-    if len(vs)<2: pbar.progress(1.0,"Sin agrupación"); return [capitalizar_etiqueta(s) for s in subtemas]
-    pbar.progress(0.40,"Clustering temas...")
-    Mc=np.array([centroids[s] for s in vs]); sc=cosine_similarity(Mc)
-    sim=0.6*sc+0.4*cosine_similarity(np.array([le[s] for s in vs])) if all(s in le for s in vs) else sc
-    cl=AgglomerativeClustering(n_clusters=None,distance_threshold=1-UMBRAL_TEMA,metric='precomputed',linkage='average').fit(1-sim)
-    if len(set(cl.labels_))>NUM_TEMAS_MAX:
-        cl=AgglomerativeClustering(n_clusters=NUM_TEMAS_MAX,metric='precomputed',linkage='average').fit(1-sim)
-    cs=defaultdict(list)
-    for i,lbl in enumerate(cl.labels_): cs[lbl].append(vs[i])
-    uc=[s for s in us if s not in vs]; mt={}; tc=len(cs)
-    for k,(cid,ls) in enumerate(cs.items()):
-        pbar.progress(0.50+0.40*(k/max(tc,1)),f"Tema {k+1}/{tc}...")
-        if len(ls)==1:
-            nombre=ls[0]; p=nombre.split()
-            if len(p)>3:
-                nombre = _recortar_frase_completa(" ".join(p), max_palabras=4)
+        repr_enriquecidas.append(
+            _construir_representacion_grupo(sub, textos_por_subtema[sub])
+        )
+
+    # ── Paso 2: Embeddings duales ──
+    pbar.progress(0.20, "Calculando embeddings de contenido...")
+
+    # Embeddings de las representaciones enriquecidas (contenido + subtema)
+    emb_repr = get_embeddings_batch(repr_enriquecidas)
+
+    # Embeddings de las etiquetas de subtema puras
+    emb_labels = get_embeddings_batch(us)
+
+    # Centroides de contenido real por subtema
+    ae = get_embeddings_batch(textos)
+    centroids_contenido = {}
+    for sub in us:
+        idxs = df.index[df['subtema'] == sub].tolist()[:50]
+        vecs = [ae[i] for i in idxs if ae[i] is not None]
+        if vecs:
+            centroids_contenido[sub] = np.mean(vecs, axis=0)
+
+    # ── Paso 3: Construir matriz de similitud combinada ──
+    pbar.progress(0.35, "Calculando similitudes combinadas...")
+
+    vs = [s for s in us if s in centroids_contenido]
+    if len(vs) < 2:
+        pbar.progress(1.0, "Sin agrupación")
+        return [capitalizar_etiqueta(s) for s in subtemas]
+
+    # Matrices individuales
+    idx_map = {s: i for i, s in enumerate(us)}
+
+    # Similitud por contenido real (centroides de noticias)
+    M_content = np.array([centroids_contenido[s] for s in vs])
+    sim_content = cosine_similarity(M_content)
+
+    # Similitud por representación enriquecida
+    M_repr = np.array([emb_repr[idx_map[s]] for s in vs
+                        if emb_repr[idx_map[s]] is not None])
+    has_repr = all(emb_repr[idx_map[s]] is not None for s in vs)
+
+    # Similitud por etiqueta
+    M_label = np.array([emb_labels[idx_map[s]] for s in vs
+                         if emb_labels[idx_map[s]] is not None])
+    has_label = all(emb_labels[idx_map[s]] is not None for s in vs)
+
+    # Combinar: peso principal al contenido, menor peso a etiquetas
+    # Esto evita que subtemas con nombres similares pero contenido diferente se fusionen
+    if has_repr and has_label:
+        sim_repr = cosine_similarity(M_repr)
+        sim_label = cosine_similarity(M_label)
+        # 50% contenido real + 35% representación enriquecida + 15% etiqueta
+        sim_combined = 0.50 * sim_content + 0.35 * sim_repr + 0.15 * sim_label
+    elif has_repr:
+        sim_repr = cosine_similarity(M_repr)
+        sim_combined = 0.60 * sim_content + 0.40 * sim_repr
+    else:
+        sim_combined = sim_content
+
+    # ── Paso 4: Clustering jerárquico ──
+    pbar.progress(0.45, "Clustering de temas...")
+
+    # Usar el umbral UMBRAL_TEMA (0.72) para agrupar más agresivamente
+    dist_matrix = 1 - sim_combined
+    np.fill_diagonal(dist_matrix, 0)
+    dist_matrix = np.clip(dist_matrix, 0, 2)
+
+    cl = AgglomerativeClustering(
+        n_clusters=None,
+        distance_threshold=1 - UMBRAL_TEMA,
+        metric='precomputed',
+        linkage='average'
+    ).fit(dist_matrix)
+
+    n_clusters = len(set(cl.labels_))
+
+    # Forzar máximo de temas
+    if n_clusters > NUM_TEMAS_MAX:
+        cl = AgglomerativeClustering(
+            n_clusters=NUM_TEMAS_MAX,
+            metric='precomputed',
+            linkage='average'
+        ).fit(dist_matrix)
+
+    # Construir grupos de subtemas por cluster
+    clusters = defaultdict(list)
+    for i, lbl in enumerate(cl.labels_):
+        clusters[lbl].append(vs[i])
+
+    # Agregar subtemas sin centroide al cluster más cercano
+    uc = [s for s in us if s not in vs]
+    mt = {}
+    tc = len(clusters)
+
+    # ── Paso 5: Generar nombres de temas (diferentes a subtemas) ──
+    pbar.progress(0.50, f"Generando nombres para {tc} temas...")
+
+    for k, (cid, subtemas_cluster) in enumerate(clusters.items()):
+        pbar.progress(0.50 + 0.35 * (k / max(tc, 1)), f"Tema {k + 1}/{tc}...")
+
+        # Recopilar títulos de las noticias de este cluster para contexto
+        titulos_cluster = []
+        textos_cluster = []
+        for sub in subtemas_cluster:
+            idxs = df.index[df['subtema'] == sub].tolist()
+            for idx in idxs[:10]:
+                # Extraer título del texto (primera oración antes del punto)
+                txt = str(textos[idx])
+                partes = txt.split('. ')
+                if partes:
+                    titulos_cluster.append(partes[0][:120])
+                textos_cluster.append(txt[:200])
+
+        if len(subtemas_cluster) == 1:
+            # Un solo subtema en el cluster → el tema debe ser más general
+            sub_unico = subtemas_cluster[0]
+            # Intentar generar un tema más amplio
+            nombre = _generar_nombre_tema_llm(
+                subtemas_cluster, textos_cluster, titulos_cluster
+            )
+            if nombre and not _tema_es_igual_a_subtema(nombre, subtemas_cluster):
+                # Éxito: tenemos un tema diferente
+                pass
+            else:
+                # Generalizar el subtema: subir un nivel de abstracción
+                nombre = _regenerar_tema_diferente(subtemas_cluster, titulos_cluster)
+                if nombre and not _tema_es_igual_a_subtema(nombre, subtemas_cluster):
+                    pass
+                else:
+                    # Último recurso: abreviar el subtema para hacerlo más general
+                    p = sub_unico.split()
+                    if len(p) > 3:
+                        nombre = _recortar_frase_completa(" ".join(p), max_palabras=3)
+                        if nombre == sub_unico or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
+                            nombre = sub_unico  # Aceptar igual como último recurso
+                    else:
+                        nombre = sub_unico
         else:
-            prompt=(
-                "Genera UNA categoría temática en español (2-4 palabras), frase coherente con preposiciones.\n\n"
-                f"SUBTEMAS:\n"+"\n".join(f"  · {s}" for s in ls[:10])+"\n\n"
-                "REGLAS:\n"
-                "- Tildes correctas. Primera letra mayúscula, resto minúsculas\n"
-                "- Sin marcas ni ciudades\n"
-                "- DEBE terminar en SUSTANTIVO o ADJETIVO\n"
-                "- NUNCA terminar en: de, del, la, el, los, las, un, una, al, en, con, por, para, su, sus\n"
-                "  INCORRECTO: 'Impacto de la', 'Regulación del'\n"
-                "  CORRECTO: 'Impacto regulatorio', 'Regulación sectorial'\n\n"
-                "Responde SOLO el nombre del tema")
-            try:
-                resp=call_with_retries(openai.ChatCompletion.create,model=OPENAI_MODEL_CLASIFICACION,
-                    messages=[{"role":"user","content":prompt}],max_tokens=60,temperature=0.0)
-                u=resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
-                if u:
-                    st.session_state['tokens_input']+=(u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
-                    st.session_state['tokens_output']+=(u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
-                nombre=limpiar_tema(resp.choices[0].message.content.strip().replace('"','').replace('.',''))
-            except: nombre=ls[0]
-        # Validar completitud del nombre del tema
+            # Múltiples subtemas → generar nombre de tema con LLM
+            nombre = _generar_nombre_tema_llm(
+                subtemas_cluster, textos_cluster, titulos_cluster
+            )
+
+            # Verificar que el tema no sea igual a ningún subtema
+            if not nombre or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
+                # Reintentar con prompt diferente
+                nombre = _regenerar_tema_diferente(subtemas_cluster, titulos_cluster)
+
+            if not nombre or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
+                # Segundo reintento
+                nombre = _regenerar_tema_diferente(subtemas_cluster, titulos_cluster, intento=1)
+
+            if not nombre or _tema_es_igual_a_subtema(nombre, subtemas_cluster):
+                # Fallback: usar keywords comunes de los subtemas
+                all_words = []
+                for sub in subtemas_cluster:
+                    for w in string_norm_label(sub).split():
+                        if len(w) > 3:
+                            all_words.append(w)
+                if all_words:
+                    top = [w for w, _ in Counter(all_words).most_common(2)]
+                    nombre = capitalizar_etiqueta(" ".join(top))
+                else:
+                    nombre = subtemas_cluster[0]
+
+        # Validar completitud
         if not _frase_esta_completa(nombre):
             nombre = _recortar_frase_completa(nombre, max_palabras=4)
             if not _frase_esta_completa(nombre):
-                # Usar el subtema más frecuente del grupo como fallback
                 freq = Counter(subtemas)
-                nombre = max(ls, key=lambda s: freq.get(s, 0))
+                nombre = max(subtemas_cluster, key=lambda s: freq.get(s, 0))
                 nombre = _recortar_frase_completa(nombre, max_palabras=4)
-        for sub in ls: mt[sub]=nombre
-    for sub in uc: mt[sub]=sub
-    tf=[mt.get(sub,sub) for sub in subtemas]
-    pbar.progress(0.92,"Deduplicando temas...")
-    tf=dedup_labels(tf,UMBRAL_DEDUP_LABEL)
-    # Validación final de completitud en temas
-    pbar.progress(0.95,"Validando completitud de temas...")
+
+        nombre = capitalizar_etiqueta(nombre)
+
+        for sub in subtemas_cluster:
+            mt[sub] = nombre
+
+    # Asignar subtemas sin centroide
+    for sub in uc:
+        mt[sub] = capitalizar_etiqueta(sub)
+
+    # ── Paso 6: Construir resultado ──
+    tf = [mt.get(sub, sub) for sub in subtemas]
+
+    # ── Paso 7: Deduplicar temas resultantes ──
+    pbar.progress(0.88, "Deduplicando temas...")
+    tf = dedup_labels(tf, UMBRAL_DEDUP_LABEL)
+
+    # ── Paso 8: Validación final tema ≠ subtema ──
+    pbar.progress(0.92, "Validando diferenciación tema/subtema...")
+    tf = _post_validar_tema_vs_subtema(tf, subtemas)
+
+    # ── Paso 9: Validación de completitud ──
+    pbar.progress(0.95, "Validando completitud de temas...")
     tf_validados = []
     for t in tf:
         if _frase_esta_completa(t):
             tf_validados.append(capitalizar_etiqueta(t))
         else:
             recortado = _recortar_frase_completa(t)
-            tf_validados.append(capitalizar_etiqueta(recortado) if _frase_esta_completa(recortado) else capitalizar_etiqueta(t))
+            tf_validados.append(
+                capitalizar_etiqueta(recortado) if _frase_esta_completa(recortado)
+                else capitalizar_etiqueta(t)
+            )
     tf = tf_validados
-    st.info(f"Temas: **{len(set(tf))}** (máx: {NUM_TEMAS_MAX})")
-    pbar.progress(1.0,"Temas listos"); return tf
+
+    n_temas = len(set(tf))
+    n_subtemas = len(set(subtemas))
+    st.info(f"Temas: **{n_temas}** (de {n_subtemas} subtemas) · Máx configurado: {NUM_TEMAS_MAX}")
+    pbar.progress(1.0, "Temas listos")
+    return tf
+
+
+def _post_validar_tema_vs_subtema(temas, subtemas):
+    """
+    Pase final: si un tema es textualmente igual o muy similar a su subtema,
+    intenta diferenciarlo generalizándolo.
+    """
+    # Mapear qué subtemas tiene cada tema
+    tema_a_subtemas = defaultdict(set)
+    for t, s in zip(temas, subtemas):
+        tema_a_subtemas[t].add(s)
+
+    # Detectar temas que son iguales a su único subtema
+    reemplazos = {}
+    for tema, subs in tema_a_subtemas.items():
+        if len(subs) == 1:
+            sub_unico = list(subs)[0]
+            tn = string_norm_label(tema)
+            sn = string_norm_label(sub_unico)
+            if tn and sn and SequenceMatcher(None, tn, sn).ratio() >= 0.80:
+                # Tema ≈ Subtema → intentar generalizar
+                nuevo = _regenerar_tema_diferente([sub_unico], [])
+                if nuevo and not _tema_es_igual_a_subtema(nuevo, [sub_unico]):
+                    if _frase_esta_completa(nuevo):
+                        reemplazos[tema] = capitalizar_etiqueta(nuevo)
+
+    if not reemplazos:
+        return temas
+
+    return [reemplazos.get(t, t) for t in temas]
+
 
 def analizar_temas_con_pkl(textos,pkl_file):
     try:
@@ -1891,7 +2195,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Sistema de Análisis de Noticias</div>
-            <div class="app-header-version">v15.1 · fix frases incompletas · validación de completitud</div>
+            <div class="app-header-version">v16.0 · temas ≠ subtemas · agrupación inteligente</div>
         </div>
         <div class="app-header-badge">IA Powered</div>
     </div>""",unsafe_allow_html=True)
@@ -1971,6 +2275,6 @@ def main():
                 pwd=st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct=pwd; st.rerun()
 
     with tab2: render_quick_tab()
-    st.markdown('<div class="footer">v15.1.0 · Sistema de Análisis de Noticias con IA · Realizado por Johnathan Cortés ©</div>',unsafe_allow_html=True)
+    st.markdown('<div class="footer">v16.0.0 · Sistema de Análisis de Noticias con IA · Realizado por Johnathan Cortés ©</div>',unsafe_allow_html=True)
 
 if __name__=="__main__": main()
