@@ -134,7 +134,7 @@ POS_PATTERNS     = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARI
 NEG_PATTERNS     = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS]
 
 # ======================================
-# CSS
+# CSS — Versión CLARA, limpia, profesional
 # ======================================
 def load_custom_css():
     st.markdown("""
@@ -142,22 +142,29 @@ def load_custom_css():
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=JetBrains+Mono:wght@300;400;500&display=swap');
 
 :root {
-    --bg:       #1a1a1e;
-    --s1:       #202024;
-    --s2:       #28282e;
-    --s3:       #323238;
-    --border:   #38383f;
-    --border2:  #48484f;
-    --text:     #ececec;
-    --text2:    #a0a0a8;
-    --text3:    #606068;
-    --accent:   #d4a574;
-    --accent2:  #b8865a;
-    --green:    #7cb88a;
-    --red:      #c87070;
-    --blue:     #7a9ec4;
+    --bg:       #fafafa;
+    --s1:       #ffffff;
+    --s2:       #f5f5f0;
+    --s3:       #eeeee8;
+    --border:   #e0ddd5;
+    --border2:  #ccc9c0;
+    --text:     #2c2c2c;
+    --text2:    #6b6b6b;
+    --text3:    #9a9a9a;
+    --accent:   #b8865a;
+    --accent2:  #a0714a;
+    --accent-bg:#fdf8f3;
+    --green:    #3d8c5c;
+    --green-bg: #f0f8f3;
+    --red:      #c0453a;
+    --red-bg:   #fdf3f2;
+    --blue:     #4a7fb5;
+    --blue-bg:  #f0f5fa;
     --r:        10px;
     --r2:       16px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-lg: 0 4px 16px rgba(0,0,0,0.10);
 }
 
 html, body, [data-testid="stApp"] {
@@ -168,6 +175,7 @@ html, body, [data-testid="stApp"] {
     -webkit-font-smoothing: antialiased;
 }
 
+/* ── Header ── */
 .app-header {
     padding: 2rem 0 1.5rem;
     border-bottom: 1px solid var(--border);
@@ -182,7 +190,6 @@ html, body, [data-testid="stApp"] {
     color: var(--accent);
     line-height: 1;
     user-select: none;
-    opacity: 0.9;
 }
 .app-header-text {}
 .app-header-title {
@@ -202,12 +209,14 @@ html, body, [data-testid="stApp"] {
     margin-top: 0.2rem;
 }
 
+/* ── Tabs ── */
 [data-testid="stTabs"] [data-testid="stTabsList"] {
     background: var(--s1) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--r) !important;
     padding: 4px !important;
     gap: 4px !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 [data-testid="stTabs"] button[data-baseweb="tab"] {
     font-family: 'Inter', sans-serif !important;
@@ -220,13 +229,18 @@ html, body, [data-testid="stApp"] {
     background: transparent !important;
     transition: all 0.15s ease !important;
 }
-[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
     background: var(--s2) !important;
-    color: var(--accent) !important;
-    border: 1px solid var(--border2) !important;
+    color: var(--text) !important;
+}
+[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+    background: var(--accent-bg) !important;
+    color: var(--accent2) !important;
+    border: 1px solid var(--accent) !important;
     font-weight: 600 !important;
 }
 
+/* ── Métricas ── */
 .metrics-row {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -239,9 +253,14 @@ html, body, [data-testid="stApp"] {
     border-radius: var(--r2);
     padding: 1.2rem 0.8rem;
     text-align: center;
-    transition: border-color 0.15s, transform 0.15s;
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+    box-shadow: var(--shadow-sm);
 }
-.metric-card:hover { border-color: var(--border2); transform: translateY(-1px); }
+.metric-card:hover {
+    border-color: var(--border2);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
 .metric-val {
     font-family: 'Source Serif 4', serif;
     font-size: 1.8rem;
@@ -257,13 +276,16 @@ html, body, [data-testid="stApp"] {
     letter-spacing: 0.12em;
 }
 
+/* ── Formularios ── */
 [data-testid="stForm"] {
     background: var(--s1) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--r2) !important;
     padding: 1.8rem !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
+/* ── Section labels ── */
 .sec-label {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.64rem;
@@ -282,13 +304,14 @@ html, body, [data-testid="stApp"] {
     display: inline-block;
     width: 3px;
     height: 10px;
-    background: var(--accent2);
+    background: var(--accent);
     border-radius: 2px;
 }
 
+/* ── Inputs ── */
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea {
-    background: var(--s2) !important;
+    background: var(--s1) !important;
     border: 1px solid var(--border) !important;
     color: var(--text) !important;
     border-radius: var(--r) !important;
@@ -298,26 +321,35 @@ html, body, [data-testid="stApp"] {
 }
 [data-testid="stTextInput"] input:focus,
 [data-testid="stTextArea"] textarea:focus {
-    border-color: var(--accent2) !important;
-    box-shadow: 0 0 0 2px rgba(212,165,116,0.12) !important;
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(184,134,90,0.15) !important;
     outline: none !important;
+}
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stTextArea"] textarea::placeholder {
+    color: var(--text3) !important;
 }
 label[data-testid="stWidgetLabel"] p {
     color: var(--text2) !important;
     font-size: 0.85rem !important;
 }
 
+/* ── File uploader ── */
 [data-testid="stFileUploader"] {
-    background: var(--s2) !important;
+    background: var(--s1) !important;
     border: 1px dashed var(--border2) !important;
     border-radius: var(--r) !important;
-    transition: border-color 0.15s !important;
+    transition: border-color 0.15s, background 0.15s !important;
 }
-[data-testid="stFileUploader"]:hover { border-color: var(--accent2) !important; }
+[data-testid="stFileUploader"]:hover {
+    border-color: var(--accent) !important;
+    background: var(--accent-bg) !important;
+}
 
+/* ── Botones ── */
 .stButton > button,
 [data-testid="stDownloadButton"] > button {
-    background: var(--s2) !important;
+    background: var(--s1) !important;
     border: 1px solid var(--border2) !important;
     color: var(--text) !important;
     border-radius: var(--r) !important;
@@ -326,54 +358,62 @@ label[data-testid="stWidgetLabel"] p {
     font-size: 0.88rem !important;
     transition: all 0.15s ease !important;
     padding: 0.5rem 1.2rem !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 .stButton > button:hover,
 [data-testid="stDownloadButton"] > button:hover {
     border-color: var(--accent) !important;
-    color: var(--accent) !important;
-    background: var(--s1) !important;
+    color: var(--accent2) !important;
+    background: var(--accent-bg) !important;
+    box-shadow: var(--shadow-md) !important;
 }
 .stButton > button[kind="primary"],
 [data-testid="stDownloadButton"] > button[kind="primary"] {
     background: linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%) !important;
     border: none !important;
-    color: #1a1a1e !important;
+    color: #ffffff !important;
     font-weight: 600 !important;
-    box-shadow: 0 2px 10px rgba(212,165,116,0.18) !important;
+    box-shadow: 0 2px 10px rgba(184,134,90,0.25) !important;
 }
 .stButton > button[kind="primary"]:hover,
 [data-testid="stDownloadButton"] > button[kind="primary"]:hover {
-    box-shadow: 0 4px 18px rgba(212,165,116,0.30) !important;
+    box-shadow: 0 4px 18px rgba(184,134,90,0.35) !important;
     transform: translateY(-1px) !important;
-    color: #1a1a1e !important;
+    color: #ffffff !important;
 }
 
+/* ── Radio ── */
 [data-testid="stRadio"] label { color: var(--text2) !important; font-size: 0.85rem !important; }
-[data-testid="stRadio"] [aria-checked="true"] + div label { color: var(--accent) !important; }
+[data-testid="stRadio"] [aria-checked="true"] + div label { color: var(--accent2) !important; font-weight: 600 !important; }
 
+/* ── Status ── */
 [data-testid="stStatus"] {
     background: var(--s1) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--r) !important;
     font-family: 'JetBrains Mono', monospace !important;
     font-size: 0.8rem !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
+/* ── Alerts ── */
 [data-testid="stAlert"] {
-    background: var(--s2) !important;
-    border: 1px solid var(--border2) !important;
+    background: var(--s1) !important;
+    border: 1px solid var(--border) !important;
     border-radius: var(--r) !important;
     color: var(--text2) !important;
     font-size: 0.84rem !important;
 }
 
+/* ── Success banner ── */
 .success-banner {
-    background: linear-gradient(135deg, var(--s1) 0%, var(--s2) 100%);
+    background: var(--green-bg);
     border: 1px solid var(--green);
-    border-left: 3px solid var(--green);
+    border-left: 4px solid var(--green);
     border-radius: var(--r2);
     padding: 1.4rem 1.6rem;
     margin: 0.8rem 0 1.4rem;
+    box-shadow: var(--shadow-sm);
 }
 .success-title {
     font-family: 'Source Serif 4', serif;
@@ -388,6 +428,7 @@ label[data-testid="stWidgetLabel"] p {
     letter-spacing: 0.08em;
 }
 
+/* ── Auth screen ── */
 .auth-wrap { max-width: 360px; margin: 10vh auto 0; }
 .auth-title {
     font-family: 'Source Serif 4', serif;
@@ -406,13 +447,24 @@ label[data-testid="stWidgetLabel"] p {
     margin-bottom: 2rem;
 }
 
-[data-testid="stProgressBar"] > div > div { background: var(--accent) !important; border-radius: 4px !important; }
-[data-testid="stDataFrame"] { border: 1px solid var(--border) !important; border-radius: var(--r) !important; }
+/* ── Progress ── */
+[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(90deg, var(--accent2), var(--accent)) !important;
+    border-radius: 4px !important;
+}
 
+/* ── Dataframe ── */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r) !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+/* ── Info box cluster settings ── */
 .cluster-info {
-    background: var(--s2);
-    border: 1px solid var(--border2);
-    border-left: 3px solid var(--accent2);
+    background: var(--accent-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
     border-radius: var(--r);
     padding: 0.9rem 1.1rem;
     margin: 0.6rem 0;
@@ -424,10 +476,10 @@ label[data-testid="stWidgetLabel"] p {
 
 hr { border-color: var(--border) !important; }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--s2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent2); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 .footer {
     font-family: 'JetBrains Mono', monospace;
@@ -446,10 +498,6 @@ hr { border-color: var(--border) !important; }
 # ======================================
 # Caché Global de Embeddings
 # ======================================
-# MEJORA CRÍTICA: Evita recalcular embeddings que ya se obtuvieron.
-# Antes, el mismo texto se embeddía hasta 3 veces (tono, subtema, tema).
-# Ahora se calcula una sola vez y se reutiliza.
-
 class EmbeddingCache:
     """Caché global de embeddings por hash de texto para evitar recálculos."""
 
@@ -473,7 +521,6 @@ class EmbeddingCache:
         self._cache[self._key(text)] = emb
 
     def get_many(self, textos: List[str]) -> Tuple[List[Optional[List[float]]], List[int]]:
-        """Retorna embeddings cacheados y lista de índices que faltan."""
         results = [None] * len(textos)
         missing = []
         for i, t in enumerate(textos):
@@ -495,7 +542,6 @@ class EmbeddingCache:
         self._misses = 0
 
 
-# Instancia global — persiste durante toda la sesión de procesamiento
 if '_emb_cache' not in st.session_state:
     st.session_state['_emb_cache'] = EmbeddingCache()
 
@@ -562,7 +608,6 @@ def limpiar_tema(tema: str) -> str:
     if not tema:
         return "Sin tema"
     tema = tema.strip().strip('"\'')
-    # Eliminar prefijos comunes que el LLM a veces añade
     for prefix in ["subtema:", "tema:", "categoría:", "categoria:"]:
         if tema.lower().startswith(prefix):
             tema = tema[len(prefix):].strip()
@@ -656,15 +701,9 @@ def normalizar_tipo_medio(tipo_raw: str) -> str:
 # ======================================
 # Texto ponderado para embeddings
 # ======================================
-# MEJORA: El título se repite 2x para que pese más en el embedding.
-# Antes era simplemente "titulo. resumen", lo que diluía la señal del título
-# en resúmenes largos. Ahora el embedding captura mejor el tema real.
-
 def texto_para_embedding(titulo: str, resumen: str, max_len: int = 1800) -> str:
-    """Genera texto optimizado para embedding con título ponderado."""
     t = str(titulo or "").strip()
     r = str(resumen or "").strip()
-    # Repetir título 2x para darle más peso semántico
     combined = f"{t}. {t}. {r}"
     return combined[:max_len]
 
@@ -673,10 +712,6 @@ def texto_para_embedding(titulo: str, resumen: str, max_len: int = 1800) -> str:
 # Deduplicación de etiquetas por similitud de cadena
 # ======================================
 def dedup_labels(etiquetas: List[str], umbral: float = UMBRAL_DEDUP_LABEL) -> List[str]:
-    """
-    Fusiona etiquetas cuya representación normalizada tenga similitud >= umbral.
-    Elige la etiqueta más frecuente como canónica (no la más corta).
-    """
     unique = list(dict.fromkeys(etiquetas))
     if len(unique) <= 1:
         return etiquetas
@@ -708,7 +743,6 @@ def dedup_labels(etiquetas: List[str], umbral: float = UMBRAL_DEDUP_LABEL) -> Li
             if sim >= umbral:
                 union(i, j)
 
-    # Contar frecuencias para elegir la más común como canónica
     freq = Counter(etiquetas)
 
     grupos: Dict[int, List[int]] = defaultdict(list)
@@ -720,7 +754,6 @@ def dedup_labels(etiquetas: List[str], umbral: float = UMBRAL_DEDUP_LABEL) -> Li
         candidates = [unique[m] for m in members]
         valid = [c for c in candidates if c not in ("Sin tema", "Varios")]
         if valid:
-            # Elegir la más frecuente; en empate, la más corta
             canon[root] = max(valid, key=lambda c: (freq[c], -len(c)))
         else:
             canon[root] = candidates[0]
@@ -736,7 +769,6 @@ def dedup_labels(etiquetas: List[str], umbral: float = UMBRAL_DEDUP_LABEL) -> Li
 # Embeddings con caché
 # ======================================
 def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optional[List[float]]]:
-    """Obtiene embeddings usando caché global. Solo llama a la API para textos no cacheados."""
     if not textos:
         return []
 
@@ -746,7 +778,6 @@ def get_embeddings_batch(textos: List[str], batch_size: int = 100) -> List[Optio
     if not missing_idxs:
         return resultados
 
-    # Solo enviar a la API los que faltan
     missing_textos = [textos[i][:2000] if textos[i] else "" for i in missing_idxs]
 
     for i in range(0, len(missing_textos), batch_size):
@@ -894,36 +925,25 @@ class ClasificadorTono:
         return list(dict.fromkeys(out))[:4]
 
     def _reglas(self, contextos: List[str]) -> Optional[str]:
-        """
-        MEJORA: Requiere más evidencia para clasificar por reglas.
-        Antes bastaban 3 hits positivos; ahora se necesita margen más claro
-        y se verifica que los hits estén en contexto de la marca.
-        """
         pos, neg = 0, 0
         for ctx in contextos:
             t = unidecode(ctx.lower())
-            # Verificar que la marca aparece en este contexto
             brand_in_ctx = bool(self.brand_re.search(t))
-
             neg_present = bool(re.search(
                 r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente)\b.{0,30}',
                 t, re.IGNORECASE
             ))
             ph = sum(1 for p in POS_PATTERNS if p.search(t))
             nh = sum(1 for p in NEG_PATTERNS if p.search(t))
-
             if CRISIS_KEYWORDS.search(t) and RESPONSE_VERBS.search(t):
                 pos += 3
                 continue
             if neg_present:
                 neg += ph
             else:
-                # Solo contar si la marca está en contexto
                 weight = 1.0 if brand_in_ctx else 0.5
                 pos += int(ph * weight)
                 neg += int(nh * weight)
-
-        # MEJORA: Umbrales más estrictos para evitar falsos positivos
         if pos >= 4 and pos > neg * 2:
             return "Positivo"
         if neg >= 4 and neg > pos * 2:
@@ -932,7 +952,6 @@ class ClasificadorTono:
 
     async def _llm(self, contextos: List[str]) -> Dict[str, str]:
         aliases_str = ", ".join(self.aliases) or "ninguno"
-        # MEJORA: Prompt más específico con ejemplos de cada categoría
         prompt = (
             f"Analiza el sentimiento ESPECÍFICO hacia la marca '{self.marca}' "
             f"(alias: {aliases_str}) en los siguientes fragmentos de noticias.\n\n"
@@ -979,7 +998,6 @@ class ClasificadorTono:
         txts = textos.tolist()
         pbar.progress(0.05, "Agrupando para análisis de tono...")
 
-        # MEJORA: Usar textos ponderados para los embeddings de agrupación de tono
         txts_emb = [
             texto_para_embedding(str(titulos.iloc[i]), str(resumenes.iloc[i]))
             for i in range(n)
@@ -1022,26 +1040,15 @@ def analizar_tono_con_pkl(textos, pkl_file):
 
 
 # ======================================
-# CLASIFICADOR DE SUBTEMAS — flujo mejorado
+# CLASIFICADOR DE SUBTEMAS
 # ======================================
-# MEJORAS PRINCIPALES:
-# 1. Embeddings ponderados (título 2x) para clustering más preciso
-# 2. Clustering semántico sobre TODOS los ítems, no solo sueltos
-# 3. Fusión inter-grupo iterativa hasta convergencia
-# 4. Etiquetado con contexto de resúmenes (no solo títulos)
-# 5. Validación post-etiquetado: si una etiqueta es demasiado genérica, se refina
-# 6. Deduplicación de etiquetas por similitud de cadena
-
 class ClasificadorSubtema:
     def __init__(self, marca: str, aliases: List[str]):
         self.marca = marca
         self.aliases = aliases or []
         self._cache: Dict[str, str] = {}
 
-    # ── Paso 1: hash exacto ───────────────────────────────────────────────────
     def _paso1_hash_exacto(self, titulos: List[str], resumenes: List[str], dsu: DSU):
-        """Noticias con título o inicio de resumen idéntico → mismo grupo."""
-
         def norm(t: str) -> str:
             t = unidecode(str(t).lower())
             return re.sub(r'[^a-z0-9\s]', '', t).split()
@@ -1065,7 +1072,6 @@ class ClasificadorSubtema:
                 for j in idxs[1:]:
                     dsu.union(idxs[0], j)
 
-    # ── Paso 2: similitud de títulos (SequenceMatcher) ───────────────────────
     def _paso2_titulos_similares(self, titulos: List[str], dsu: DSU):
         norm = [normalize_title_for_comparison(t) for t in titulos]
         n = len(norm)
@@ -1078,18 +1084,7 @@ class ClasificadorSubtema:
                 if SequenceMatcher(None, norm[i], norm[j]).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
                     dsu.union(i, j)
 
-    # ── Paso 3: clustering semántico completo ────────────────────────────────
     def _paso3_semantico_completo(self, emb_textos: List[str], dsu: DSU, pbar, p_start: float):
-        """
-        MEJORA PRINCIPAL: Clustering sobre TODOS los ítems, no solo sueltos.
-        Antes los ítems ya agrupados en pasos 1-2 nunca se evaluaban
-        semánticamente contra otros grupos, creando fragmentación.
-        
-        Ahora:
-        1. Se obtienen embeddings de todos
-        2. Se hace clustering global
-        3. Se unen al DSU existente (no reemplaza, AGREGA uniones)
-        """
         n = len(emb_textos)
         if n < 2:
             return
@@ -1097,7 +1092,6 @@ class ClasificadorSubtema:
         BATCH = 500
         total_batches = max(1, (n + BATCH - 1) // BATCH)
 
-        # Para datasets pequeños, hacer todo de una vez
         if n <= BATCH:
             pbar.progress(p_start, "Clustering semántico global...")
             embs = get_embeddings_batch(emb_textos)
@@ -1122,10 +1116,8 @@ class ClasificadorSubtema:
             pbar.progress(p_start + 0.18, "Clustering global completado")
             return
 
-        # Para datasets grandes: batch + centroide cross-batch
         all_embs = get_embeddings_batch(emb_textos)
 
-        # Intra-batch clustering
         for b_num, b_start in enumerate(range(0, n, BATCH)):
             batch_idxs = list(range(b_start, min(b_start + BATCH, n)))
             ok = [(idx, all_embs[idx]) for idx in batch_idxs if all_embs[idx] is not None]
@@ -1151,19 +1143,12 @@ class ClasificadorSubtema:
                 f"Clustering lote {b_num + 1}/{total_batches}..."
             )
 
-        # Cross-batch: comparar centroides de grupos de diferentes batches
         pbar.progress(p_start + 0.16, "Unificando lotes...")
         self._fusion_intergrupo_iterativa(emb_textos, all_embs, dsu, pbar, p_start + 0.16)
 
-    # ── Paso 3b: fusión inter-grupo iterativa ────────────────────────────────
     def _fusion_intergrupo_iterativa(self, textos: List[str],
                                       all_embs: List[Optional[List[float]]],
                                       dsu: DSU, pbar, p_start: float):
-        """
-        MEJORA: Itera hasta convergencia en lugar de una sola pasada.
-        Antes se comparaban centroides una vez, pero si A se fusionaba con B,
-        y B era similar a C, C no se fusionaba. Ahora itera.
-        """
         n = len(textos)
 
         for iteration in range(MAX_ITER_FUSION):
@@ -1205,22 +1190,15 @@ class ClasificadorSubtema:
             )
 
             if fusiones == 0:
-                break  # Convergencia alcanzada
+                break
 
-    # ── Paso 4: generar etiqueta para un grupo ────────────────────────────────
     def _generar_etiqueta(self, textos_grp: List[str], titulos_grp: List[str],
                            resumenes_grp: List[str]) -> str:
-        """
-        MEJORA: Incluye fragmentos de resúmenes en el prompt para dar más
-        contexto al LLM. Antes solo veía títulos, que pueden ser ambiguos.
-        """
-        # Clave de caché robusta
         titulos_norm = sorted(set(normalize_title_for_comparison(t) for t in titulos_grp if t))
         cache_key = hashlib.md5("|".join(titulos_norm[:12]).encode()).hexdigest()
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        # Extraer keywords
         palabras = []
         for t in titulos_grp[:8]:
             palabras.extend(w for w in string_norm_label(t).split() if len(w) > 3)
@@ -1228,7 +1206,6 @@ class ClasificadorSubtema:
 
         titulos_muestra = list(dict.fromkeys(t[:120] for t in titulos_grp if t))[:6]
 
-        # MEJORA: Incluir fragmentos de resúmenes para contexto
         resumenes_muestra = []
         for r in resumenes_grp[:3]:
             if r and len(str(r)) > 20:
@@ -1278,13 +1255,11 @@ class ClasificadorSubtema:
             raw = json.loads(resp.choices[0].message.content).get("subtema", "Varios")
             etiqueta = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
 
-            # MEJORA: Validar que no sea genérica
             genericas = {"gestión", "gestion", "actividades", "acciones", "noticias",
                          "información", "informacion", "eventos", "varios", "sin tema",
                          "actividad corporativa", "noticias corporativas", "gestión empresarial",
                          "gestion empresarial"}
             if string_norm_label(etiqueta) in genericas or len(etiqueta.split()) < 2:
-                # Reintentar con prompt más restrictivo
                 etiqueta = self._refinar_etiqueta(titulos_muestra, keywords)
 
         except:
@@ -1294,7 +1269,6 @@ class ClasificadorSubtema:
         return etiqueta
 
     def _refinar_etiqueta(self, titulos: List[str], keywords: str) -> str:
-        """Segundo intento con prompt más específico si la primera etiqueta fue genérica."""
         prompt = (
             "Los siguientes títulos de noticias comparten un tema en común. "
             "Identifica el tema ESPECÍFICO en 3-5 palabras.\n\n"
@@ -1323,7 +1297,6 @@ class ClasificadorSubtema:
             return self._etiqueta_fallback([])
 
     def _etiqueta_fallback(self, titulos: List[str]) -> str:
-        """Generar etiqueta de fallback basada en keywords de los títulos."""
         if not titulos:
             return "Cobertura Informativa"
         palabras = []
@@ -1336,7 +1309,6 @@ class ClasificadorSubtema:
             return " ".join(w.capitalize() for w in top[:3])
         return "Cobertura Informativa"
 
-    # ── Método principal ──────────────────────────────────────────────────────
     def procesar_lote(self, col_resumen: pd.Series, pbar,
                       resumenes_puros: pd.Series, titulos_puros: pd.Series) -> List[str]:
         textos = col_resumen.tolist()
@@ -1344,13 +1316,11 @@ class ClasificadorSubtema:
         resumenes = resumenes_puros.tolist()
         n = len(textos)
 
-        # MEJORA: Generar textos ponderados para embedding UNA sola vez
         emb_textos = [
             texto_para_embedding(titulos[i], resumenes[i])
             for i in range(n)
         ]
 
-        # ── Fase 1: agrupación determinista ───────────────────────────────────
         pbar.progress(0.05, "Fase 1 · Agrupando noticias idénticas...")
         dsu = DSU(n)
         self._paso1_hash_exacto(titulos, resumenes, dsu)
@@ -1358,15 +1328,12 @@ class ClasificadorSubtema:
         pbar.progress(0.12, "Fase 2 · Similitud de títulos...")
         self._paso2_titulos_similares(titulos, dsu)
 
-        # ── Fase 3: clustering semántico COMPLETO ────────────────────────────
         pbar.progress(0.20, "Fase 3 · Clustering semántico global...")
         self._paso3_semantico_completo(emb_textos, dsu, pbar, p_start=0.20)
 
-        # Grupos finales (post-fusión iterativa)
         grupos_finales = dsu.grupos(n)
         n_grupos = len(grupos_finales)
 
-        # ── Fase 4: generar UNA etiqueta por grupo y propagar ─────────────────
         pbar.progress(0.55, f"Fase 4 · Etiquetando {n_grupos} grupos...")
         mapa: Dict[int, str] = {}
         sorted_groups = sorted(grupos_finales.items(), key=lambda x: -len(x[1]))
@@ -1387,13 +1354,9 @@ class ClasificadorSubtema:
 
         subtemas = [mapa.get(i, "Varios") for i in range(n)]
 
-        # ── Fase 5: deduplicación de etiquetas similares ────────────────────
         pbar.progress(0.88, "Fase 5 · Deduplicando etiquetas similares...")
         subtemas = dedup_labels(subtemas, UMBRAL_DEDUP_LABEL)
 
-        # ── Fase 6: verificación de consistencia ─────────────────────────────
-        # MEJORA: Si dos grupos tienen la misma etiqueta, verificar que sean
-        # semánticamente similares. Si no, diferenciar.
         pbar.progress(0.93, "Fase 6 · Verificando consistencia...")
         subtemas = self._verificar_consistencia(subtemas, emb_textos, pbar)
 
@@ -1404,14 +1367,6 @@ class ClasificadorSubtema:
 
     def _verificar_consistencia(self, subtemas: List[str], emb_textos: List[str],
                                  pbar) -> List[str]:
-        """
-        NUEVA FUNCIÓN: Verifica que noticias con la misma etiqueta sean
-        realmente similares. Si un subtema agrupa noticias muy diferentes
-        (por dedup agresivo), las separa.
-        """
-        from collections import defaultdict
-
-        # Agrupar por subtema
         por_subtema: Dict[str, List[int]] = defaultdict(list)
         for i, sub in enumerate(subtemas):
             por_subtema[sub].append(i)
@@ -1423,22 +1378,18 @@ class ClasificadorSubtema:
             if len(idxs) < 3 or sub in ("Sin tema", "Varios"):
                 continue
 
-            # Calcular similitud intra-grupo
             vecs = [all_embs[i] for i in idxs if all_embs[i] is not None]
             if len(vecs) < 3:
                 continue
 
             M = np.array(vecs)
             sim = cosine_similarity(M)
-            # Media de similitud (excluyendo diagonal)
             n_v = len(vecs)
             if n_v > 1:
                 mask = ~np.eye(n_v, dtype=bool)
                 avg_sim = sim[mask].mean()
 
-                # Si la similitud media es muy baja, el grupo es inconsistente
                 if avg_sim < 0.65:
-                    # Re-clusterizar este grupo
                     labels = AgglomerativeClustering(
                         n_clusters=None,
                         distance_threshold=1 - UMBRAL_SUBTEMA,
@@ -1447,10 +1398,9 @@ class ClasificadorSubtema:
                     ).fit(1 - sim).labels_
 
                     if len(set(labels)) > 1:
-                        # Hay sub-clusters: añadir sufijo diferenciador
                         for k, lbl in enumerate(labels):
                             valid_idx = [i for i in idxs if all_embs[i] is not None][k]
-                            if lbl > 0:  # Solo renombrar los sub-clusters secundarios
+                            if lbl > 0:
                                 resultado[valid_idx] = f"{sub} ({lbl + 1})"
 
         return resultado
@@ -1459,12 +1409,14 @@ class ClasificadorSubtema:
 # ======================================
 # CONSOLIDACIÓN DE TEMAS
 # ======================================
+def _generalizar_subtema(subtema: str) -> str:
+    palabras = subtema.split()
+    if len(palabras) <= 2:
+        return subtema
+    return " ".join(palabras[:min(3, len(palabras))])
+
+
 def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
-    """
-    MEJORA: Usa embeddings de las ETIQUETAS de subtema (no de los textos)
-    para clustering de temas. Esto es más preciso porque compara la semántica
-    de los subtemas entre sí, no de textos individuales que pueden variar.
-    """
     pbar.progress(0.05, "Calculando centroides de subtemas...")
     df = pd.DataFrame({'subtema': subtemas, 'texto': textos})
     unique_subs = list(df['subtema'].unique())
@@ -1473,11 +1425,8 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
         pbar.progress(1.0, "Un solo tema")
         return subtemas
 
-    # MEJORA: Combinar embedding de la etiqueta + centroide de textos
-    # para una representación más robusta
     all_embs = get_embeddings_batch(textos)
 
-    # Centroide semántico por subtema
     centroids: Dict[str, np.ndarray] = {}
     for sub in unique_subs:
         idxs = df.index[df['subtema'] == sub].tolist()[:40]
@@ -1485,7 +1434,6 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
         if vecs:
             centroids[sub] = np.mean(vecs, axis=0)
 
-    # También embeddear las etiquetas de subtema para comparar por nombre
     label_embs_raw = get_embeddings_batch(unique_subs)
     label_embs = {
         sub: emb for sub, emb in zip(unique_subs, label_embs_raw)
@@ -1499,21 +1447,17 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
 
     pbar.progress(0.40, "Clustering de subtemas en temas...")
 
-    # MEJORA: Combinar similitud de contenido (centroide) y similitud de etiqueta
     M_content = np.array([centroids[s] for s in valid_subs])
     sim_content = cosine_similarity(M_content)
 
-    # Si tenemos embeddings de etiquetas, hacer media ponderada
     has_label_embs = all(s in label_embs for s in valid_subs)
     if has_label_embs:
         M_labels = np.array([label_embs[s] for s in valid_subs])
         sim_labels = cosine_similarity(M_labels)
-        # Peso: 60% contenido, 40% etiqueta
         sim = 0.6 * sim_content + 0.4 * sim_labels
     else:
         sim = sim_content
 
-    # Clustering con distance_threshold
     clustering = AgglomerativeClustering(
         n_clusters=None,
         distance_threshold=1 - UMBRAL_TEMA,
@@ -1523,7 +1467,6 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
 
     n_temas_obtenidos = len(set(clustering.labels_))
 
-    # Si excede el máximo, re-clusterizar con tope
     if n_temas_obtenidos > NUM_TEMAS_MAX:
         clustering = AgglomerativeClustering(
             n_clusters=NUM_TEMAS_MAX,
@@ -1535,7 +1478,6 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
     for i, lbl in enumerate(clustering.labels_):
         clusters_subs[lbl].append(valid_subs[i])
 
-    # Para subtemas que no se pudieron clusterizar
     unclustered = [s for s in unique_subs if s not in valid_subs]
 
     mapa_tema: Dict[str, str] = {}
@@ -1545,10 +1487,8 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
         pbar.progress(0.50 + 0.40 * (k / max(total_clusters, 1)),
                       f"Generando tema {k + 1}/{total_clusters}...")
 
-        # Si solo hay un subtema en el cluster, el tema puede derivarse directamente
         if len(lista_subs) == 1:
-            # Generalizar ligeramente el subtema
-            nombre = self._generalizar_subtema(lista_subs[0])
+            nombre = _generalizar_subtema(lista_subs[0])
         else:
             titulos_muestra = lista_subs[:10]
             prompt = (
@@ -1574,11 +1514,8 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
                 )
                 usage = resp.get('usage', {}) if isinstance(resp, dict) else getattr(resp, 'usage', {})
                 if usage:
-                    pt = usage.get('prompt_tokens') if isinstance(usage, dict) else getattr(usage,
-                                                                                             'prompt_tokens', 0)
-                    ct = usage.get('completion_tokens') if isinstance(usage, dict) else getattr(usage,
-                                                                                                 'completion_tokens',
-                                                                                                 0)
+                    pt = usage.get('prompt_tokens') if isinstance(usage, dict) else getattr(usage, 'prompt_tokens', 0)
+                    ct = usage.get('completion_tokens') if isinstance(usage, dict) else getattr(usage, 'completion_tokens', 0)
                     st.session_state['tokens_input'] += (pt or 0)
                     st.session_state['tokens_output'] += (ct or 0)
                 nombre = limpiar_tema(resp.choices[0].message.content.strip().replace('"', '').replace('.', ''))
@@ -1588,13 +1525,11 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
         for sub in lista_subs:
             mapa_tema[sub] = nombre
 
-    # Asignar tema a subtemas no clusterizados
     for sub in unclustered:
         mapa_tema[sub] = sub
 
     temas_final = [mapa_tema.get(sub, sub) for sub in subtemas]
 
-    # Deduplicar etiquetas de temas
     pbar.progress(0.92, "Deduplicando etiquetas de temas...")
     temas_final = dedup_labels(temas_final, UMBRAL_DEDUP_LABEL)
 
@@ -1602,20 +1537,6 @@ def consolidar_temas(subtemas: List[str], textos: List[str], pbar) -> List[str]:
     st.info(f"Temas consolidados: **{n_temas}** (máximo configurado: {NUM_TEMAS_MAX})")
     pbar.progress(1.0, "Temas finalizados")
     return temas_final
-
-
-def _generalizar_subtema(subtema: str) -> str:
-    """Generaliza un subtema individual a nivel de tema."""
-    # Quitar adjetivos específicos, mantener sustantivos
-    palabras = subtema.split()
-    if len(palabras) <= 2:
-        return subtema
-    # Tomar las primeras 2-3 palabras como tema general
-    return " ".join(palabras[:min(3, len(palabras))])
-
-
-# Hacer accesible como función de módulo para consolidar_temas
-consolidar_temas.__globals__['_generalizar_subtema'] = _generalizar_subtema
 
 
 def analizar_temas_con_pkl(textos, pkl_file):
@@ -1809,7 +1730,6 @@ def generate_output_excel(rows, key_map):
 async def run_full_process_async(dossier_file, region_file, internet_file, brand_name,
                                   brand_aliases, tono_pkl_file, tema_pkl_file, analysis_mode):
     st.session_state.update({'tokens_input': 0, 'tokens_output': 0, 'tokens_embedding': 0})
-    # Limpiar caché de embeddings para nuevo procesamiento
     get_embedding_cache().clear()
     t0 = time.time()
 
@@ -1847,7 +1767,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
     if to_analyze:
         df = pd.DataFrame(to_analyze)
 
-        # MEJORA: Usar texto ponderado con título repetido
         df["_txt"] = df.apply(
             lambda r: texto_para_embedding(
                 str(r.get(key_map["titulo"], "")),
@@ -1856,7 +1775,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
             axis=1
         )
 
-        # MEJORA: Pre-calcular embeddings para reutilización
         with st.status("Pre-calculando embeddings...", expanded=True) as s:
             _ = get_embeddings_batch(df["_txt"].tolist())
             cache_stats = get_embedding_cache().stats()
@@ -1907,7 +1825,6 @@ async def run_full_process_async(dossier_file, region_file, internet_file, brand
     co = (st.session_state['tokens_output'] / 1e6) * PRICE_OUTPUT_1M
     cem = (st.session_state['tokens_embedding'] / 1e6) * PRICE_EMBEDDING_1M
 
-    # Log cache stats
     cache_stats = get_embedding_cache().stats()
 
     with st.status("Paso 5 · Generando informe", expanded=True) as s:
@@ -1937,7 +1854,6 @@ async def run_quick_analysis_async(df, title_col, summary_col, brand_name, alias
     st.session_state.update({'tokens_input': 0, 'tokens_output': 0, 'tokens_embedding': 0})
     get_embedding_cache().clear()
 
-    # MEJORA: Texto ponderado
     df['_txt'] = df.apply(
         lambda r: texto_para_embedding(
             str(r.get(title_col, "")),
@@ -1946,7 +1862,6 @@ async def run_quick_analysis_async(df, title_col, summary_col, brand_name, alias
         axis=1
     )
 
-    # Pre-calcular embeddings
     with st.status("Pre-calculando embeddings...", expanded=True) as s:
         _ = get_embeddings_batch(df['_txt'].tolist())
         s.update(label=f"Embeddings listos · {get_embedding_cache().stats()}", state="complete")
@@ -2106,7 +2021,7 @@ def main():
                   UMBRAL_FUSION_INTERGRUPO = {UMBRAL_FUSION_INTERGRUPO} &nbsp;·&nbsp;
                   UMBRAL_DEDUP_LABEL = {UMBRAL_DEDUP_LABEL} &nbsp;·&nbsp;
                   MAX_ITER_FUSION = {MAX_ITER_FUSION}<br>
-                  <span style="color:#606068">
+                  <span style="color:var(--text3)">
                   Aumenta UMBRAL_SUBTEMA para menos subtemas, más generales |
                   Disminúyelo para más subtemas, más específicos
                   </span>
@@ -2145,7 +2060,6 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-            # Mostrar cache stats si están disponibles
             if 'cache_stats' in st.session_state:
                 st.caption(f"📊 {st.session_state['cache_stats']}")
 
