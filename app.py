@@ -100,6 +100,23 @@ todas ser haber hacer tener poder deber ir dar ver saber querer llegar pasar
 encontrar creer decir poner salir volver seguir llevar sentir cambiar
 """.split())
 
+# Palabras que NO pueden terminar una frase temática (dejan la frase incompleta)
+_TRAILING_INCOMPLETE = {
+    "de","del","la","el","los","las","un","una","unos","unas","al","su","sus",
+    "en","con","sin","por","para","sobre","ante","bajo","contra","desde",
+    "entre","hacia","hasta","mediante","tras","y","o","u","e","lo","que","se",
+    "como","donde","cuando","cual","cuyo","cuya","cuyos","cuyas",
+    "este","esta","estos","estas","ese","esa","esos","esas",
+    "aquel","aquella","aquellos","aquellas","cada","todo","toda","todos","todas",
+    "otro","otra","otros","otras","nuevo","nueva","nuevos","nuevas",
+    "gran","grandes","mayor","mayores","menor","menores","mejor","mejores",
+    "peor","peores","primer","primera","segundo","segunda","tercer","tercera",
+    "más","mas","muy","tan","tanto","tanta","tantos","tantas",
+    "mi","mis","tu","tus","nuestro","nuestra","nuestros","nuestras",
+    "a","ha","he","ser","estar","haber","hacer","tener","poder","deber",
+    "ir","dar","ver","saber","querer","llegar","pasar","decir","poner",
+}
+
 POS_VARIANTS = [
     r"lanz(a(r|ra|ria|o|on|an|ando)?|amiento)s?", r"prepar(a|ando)",
     r"nuev[oa]\s+(servicio|tienda|plataforma|app|aplicacion|funcion|canal|portal|producto|iniciativa|proyecto)",
@@ -315,9 +332,6 @@ html, body, [data-testid="stApp"] {
 #MainMenu, footer, header { visibility: hidden }
 .stDeployButton { display: none }
 
-/* ═══════════════════════════════════════
-   HEADER
-   ═══════════════════════════════════════ */
 .app-header {
     background: var(--s1);
     border: 1px solid var(--border);
@@ -371,9 +385,6 @@ html, body, [data-testid="stApp"] {
     white-space: nowrap;
 }
 
-/* ═══════════════════════════════════════
-   TABS
-   ═══════════════════════════════════════ */
 [data-testid="stTabs"] [data-testid="stTabsList"] {
     background: var(--s1) !important;
     border: 1px solid var(--border) !important;
@@ -404,9 +415,6 @@ html, body, [data-testid="stApp"] {
     font-weight: 700 !important;
 }
 
-/* ═══════════════════════════════════════
-   METRICS GRID
-   ═══════════════════════════════════════ */
 .metrics-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -457,9 +465,6 @@ html, body, [data-testid="stApp"] {
     font-weight: 500;
 }
 
-/* ═══════════════════════════════════════
-   FORMS
-   ═══════════════════════════════════════ */
 [data-testid="stForm"] {
     background: var(--s1) !important;
     border: 1px solid var(--border) !important;
@@ -468,9 +473,6 @@ html, body, [data-testid="stApp"] {
     box-shadow: var(--shadow-md) !important;
 }
 
-/* ═══════════════════════════════════════
-   SECTION LABELS
-   ═══════════════════════════════════════ */
 .sec-label {
     font-size: 0.8rem;
     font-weight: 700;
@@ -492,9 +494,6 @@ html, body, [data-testid="stApp"] {
     border-radius: 2px;
 }
 
-/* ═══════════════════════════════════════
-   UPLOAD ZONE CARDS
-   ═══════════════════════════════════════ */
 .upload-zone {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -569,9 +568,6 @@ html, body, [data-testid="stApp"] {
     z-index: 1;
 }
 
-/* ═══════════════════════════════════════
-   FILE UPLOADER (drag & drop)
-   ═══════════════════════════════════════ */
 [data-testid="stFileUploader"] {
     background: linear-gradient(135deg, var(--s2) 0%, var(--s1) 100%) !important;
     border: 2px dashed var(--border) !important;
@@ -613,9 +609,6 @@ html, body, [data-testid="stApp"] {
     border-color: var(--accent) !important;
 }
 
-/* ═══════════════════════════════════════
-   INPUTS
-   ═══════════════════════════════════════ */
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea {
     background: var(--s1) !important;
@@ -646,9 +639,6 @@ label[data-testid="stWidgetLabel"] p {
     margin-bottom: 0.3rem !important;
 }
 
-/* ═══════════════════════════════════════
-   BUTTONS
-   ═══════════════════════════════════════ */
 .stButton > button,
 [data-testid="stDownloadButton"] > button {
     background: var(--s1) !important;
@@ -688,18 +678,12 @@ label[data-testid="stWidgetLabel"] p {
     color: #fff !important;
 }
 
-/* ═══════════════════════════════════════
-   RADIO
-   ═══════════════════════════════════════ */
 [data-testid="stRadio"] label {
     color: var(--text2) !important;
     font-size: 0.95rem !important;
     font-weight: 500 !important;
 }
 
-/* ═══════════════════════════════════════
-   STATUS CONTAINERS
-   ═══════════════════════════════════════ */
 [data-testid="stStatus"] {
     background: var(--s1) !important;
     border: 1px solid var(--border) !important;
@@ -709,9 +693,6 @@ label[data-testid="stWidgetLabel"] p {
     box-shadow: var(--shadow-sm) !important;
 }
 
-/* ═══════════════════════════════════════
-   ALERTS
-   ═══════════════════════════════════════ */
 [data-testid="stAlert"] {
     background: var(--s1) !important;
     border: 1px solid var(--border) !important;
@@ -721,9 +702,6 @@ label[data-testid="stWidgetLabel"] p {
     padding: 1rem 1.2rem !important;
 }
 
-/* ═══════════════════════════════════════
-   SUCCESS BANNER
-   ═══════════════════════════════════════ */
 .success-banner {
     background: linear-gradient(135deg, var(--green-bg) 0%, #d1fae5 100%);
     border: 1px solid var(--green-bdr);
@@ -755,9 +733,6 @@ label[data-testid="stWidgetLabel"] p {
     color: var(--text2);
 }
 
-/* ═══════════════════════════════════════
-   AUTH SCREEN
-   ═══════════════════════════════════════ */
 .auth-wrap {
     max-width: 400px;
     margin: 10vh auto 0;
@@ -784,9 +759,6 @@ label[data-testid="stWidgetLabel"] p {
     margin-bottom: 2.5rem;
 }
 
-/* ═══════════════════════════════════════
-   CLUSTER INFO BOX
-   ═══════════════════════════════════════ */
 .cluster-info {
     background: linear-gradient(135deg, var(--accent-bg) 0%, var(--accent-bg2) 100%);
     border: 1px solid var(--accent-bdr);
@@ -803,18 +775,12 @@ label[data-testid="stWidgetLabel"] p {
     font-size: 0.82rem;
 }
 
-/* ═══════════════════════════════════════
-   PROGRESS BAR
-   ═══════════════════════════════════════ */
 [data-testid="stProgressBar"] > div > div {
     background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3)) !important;
     border-radius: 6px !important;
     height: 6px !important;
 }
 
-/* ═══════════════════════════════════════
-   DATAFRAME
-   ═══════════════════════════════════════ */
 [data-testid="stDataFrame"] {
     border: 1px solid var(--border) !important;
     border-radius: var(--r2) !important;
@@ -822,9 +788,6 @@ label[data-testid="stWidgetLabel"] p {
     overflow: hidden !important;
 }
 
-/* ═══════════════════════════════════════
-   MISC
-   ═══════════════════════════════════════ */
 hr { border-color: var(--s3) !important }
 
 ::-webkit-scrollbar { width: 8px; height: 8px }
@@ -843,9 +806,6 @@ hr { border-color: var(--s3) !important }
     margin-top: 3rem;
 }
 
-/* ═══════════════════════════════════════
-   RESPONSIVE
-   ═══════════════════════════════════════ */
 @media (max-width: 768px) {
     .metrics-grid { grid-template-columns: repeat(2, 1fr) }
     .upload-zone { grid-template-columns: 1fr }
@@ -935,16 +895,46 @@ def capitalizar_etiqueta(tema):
     tema = corregir_tildes(tema)
     return tema[0].upper() + tema[1:]
 
+
+def _frase_esta_completa(texto):
+    """Verifica que una frase temática no termina en palabra incompleta."""
+    if not texto or not texto.strip():
+        return False
+    palabras = texto.strip().split()
+    if not palabras:
+        return False
+    ultima = palabras[-1].lower().rstrip(".,;:!?")
+    # Remover tildes para comparar
+    ultima_norm = unidecode(ultima)
+    return ultima_norm not in _TRAILING_INCOMPLETE and len(ultima) > 1
+
+
+def _recortar_frase_completa(texto, max_palabras=7):
+    """Recorta a max_palabras pero asegura que la frase termine en palabra sustantiva."""
+    if not texto:
+        return "Sin tema"
+    palabras = texto.strip().split()
+    # Primero recortar al máximo
+    if len(palabras) > max_palabras:
+        palabras = palabras[:max_palabras]
+    # Ahora quitar palabras finales que dejan la frase incompleta
+    while palabras and unidecode(palabras[-1].lower().rstrip(".,;:!?")) in _TRAILING_INCOMPLETE:
+        palabras.pop()
+    # Si quedó vacío o solo 1 palabra muy corta, devolver lo que había
+    if not palabras:
+        return texto.strip().split()[0] if texto.strip() else "Sin tema"
+    return " ".join(palabras)
+
+
 def limpiar_tema(tema):
     if not tema: return "Sin tema"
     tema = tema.strip().strip('"\'')
     for px in ["subtema:","tema:","categoría:","categoria:","category:"]:
         if tema.lower().startswith(px): tema = tema[len(px):].strip()
-    inv = {"en","de","del","la","el","y","o","con","sin","por","para","sobre","los","las","un","una","al","su","sus","que","se"}
-    p = tema.split()
-    while p and p[-1].lower() in inv: p.pop()
-    tema = " ".join(p[:7])
+    # Recortar de forma segura (no dejar frases incompletas)
+    tema = _recortar_frase_completa(tema, max_palabras=7)
     return capitalizar_etiqueta(tema) if tema else "Sin tema"
+
 
 def limpiar_tema_geografico(tema, marca, aliases):
     if not tema: return "Sin tema"
@@ -995,6 +985,70 @@ def texto_para_embedding(titulo,resumen,max_len=1800):
     return f"{t}. {t}. {t}. {r}"[:max_len]
 
 # ======================================
+# Validación de etiquetas completas
+# ======================================
+def _validar_etiqueta_completa(etiqueta, titulos_grp=None, resumenes_grp=None, marca="", aliases=None, fallback_fn=None):
+    """
+    Valida que una etiqueta sea una frase completa.
+    Si no lo es, intenta regenerarla o usa fallback.
+    """
+    if not etiqueta or etiqueta.strip().lower() in ("sin tema", "varios", "n/a"):
+        if fallback_fn:
+            return fallback_fn(titulos_grp or [])
+        return "Cobertura informativa general"
+
+    # Verificar completitud
+    if _frase_esta_completa(etiqueta):
+        return etiqueta
+
+    # La frase está incompleta - intentar arreglar recortando
+    recortada = _recortar_frase_completa(etiqueta, max_palabras=7)
+    if _frase_esta_completa(recortada) and len(recortada.split()) >= 2:
+        return capitalizar_etiqueta(recortada)
+
+    # Si recortar no funcionó, regenerar con LLM
+    if titulos_grp and len(titulos_grp) > 0:
+        try:
+            prompt = (
+                f"La frase '{etiqueta}' está incompleta como categoría temática. "
+                f"Genera una frase temática COMPLETA en español de 3-5 palabras basada en estos títulos:\n\n"
+                + "\n".join(f"  · {t[:120]}" for t in titulos_grp[:4]) + "\n\n"
+                "REGLAS:\n"
+                "1. La frase debe terminar en un sustantivo o adjetivo, NUNCA en artículo/preposición\n"
+                "2. Debe ser coherente y auto-contenida\n"
+                "3. NO uses nombres de empresas, marcas ni ciudades\n"
+                "4. Usa tildes correctas\n\n"
+                "INCORRECTO: 'Impacto de la', 'Análisis del nuevo', 'Regulación de'\n"
+                "CORRECTO: 'Impacto ambiental', 'Análisis financiero trimestral', 'Regulación bancaria'\n\n"
+                'JSON: {"subtema":"..."}'
+            )
+            resp = call_with_retries(
+                openai.ChatCompletion.create,
+                model=OPENAI_MODEL_CLASIFICACION,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=80,
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            u = resp.get('usage', {}) if isinstance(resp, dict) else getattr(resp, 'usage', {})
+            if u:
+                st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u, dict) else getattr(u, 'prompt_tokens', 0)) or 0
+                st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u, dict) else getattr(u, 'completion_tokens', 0)) or 0
+            raw = json.loads(resp.choices[0].message.content).get("subtema", "")
+            if raw:
+                cleaned = limpiar_tema_geografico(limpiar_tema(raw), marca, aliases or [])
+                if _frase_esta_completa(cleaned) and len(cleaned.split()) >= 2:
+                    return capitalizar_etiqueta(cleaned)
+        except:
+            pass
+
+    # Último recurso: fallback
+    if fallback_fn:
+        return fallback_fn(titulos_grp or [])
+    return capitalizar_etiqueta(recortada) if recortada and len(recortada.split()) >= 2 else "Cobertura informativa general"
+
+
+# ======================================
 # Deduplicación de etiquetas
 # ======================================
 def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
@@ -1025,12 +1079,26 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
     grupos = defaultdict(list)
     for i in range(n): grupos[find(i)].append(i)
     canon = {}
-    for root,members in grupos.items():
+    for root, members in grupos.items():
         cands = [unique[m] for m in members]
-        valid = [c for c in cands if c.lower() not in ("sin tema","varios")]
-        canon[root] = max(valid,key=lambda c:(freq[c],len(c))) if valid else cands[0]
-    lm = {unique[i]:canon[find(i)] for i in range(n)}
-    return [capitalizar_etiqueta(lm.get(e,e)) for e in etiquetas]
+        # Filtrar candidatos que sean frases completas
+        valid_complete = [c for c in cands
+                         if c.lower() not in ("sin tema", "varios")
+                         and _frase_esta_completa(c)]
+        valid_any = [c for c in cands if c.lower() not in ("sin tema", "varios")]
+
+        if valid_complete:
+            # Preferir la más frecuente entre las completas
+            canon[root] = max(valid_complete, key=lambda c: (freq[c], len(c)))
+        elif valid_any:
+            # Si ninguna está completa, recortar la mejor candidata
+            best = max(valid_any, key=lambda c: (freq[c], len(c)))
+            recortada = _recortar_frase_completa(best)
+            canon[root] = recortada if _frase_esta_completa(recortada) else best
+        else:
+            canon[root] = cands[0]
+    lm = {unique[i]: canon[find(i)] for i in range(n)}
+    return [capitalizar_etiqueta(lm.get(e, e)) for e in etiquetas]
 
 # ======================================
 # Embeddings con caché
@@ -1321,20 +1389,23 @@ class ClasificadorSubtema:
             "el asunto central de estas noticias.\n\n"
             f"TÍTULOS:\n"+"\n".join(f"  · {t}" for t in tm)+ctx+"\n\n"
             f"PALABRAS CLAVE: {kw}\n\n"
-            "REGLAS:\n"
+            "REGLAS CRÍTICAS:\n"
             "1. NO uses nombres de empresas, marcas, personas ni ciudades\n"
             "2. Debe ser una FRASE COHERENTE en español con preposiciones y artículos donde corresponda\n"
             "3. NO concatenes palabras sueltas (INCORRECTO: 'Seguimiento derechos laborales fusiones')\n"
             "4. Usa tildes correctas (ej: 'Regulación', NO 'Regulacion')\n"
             "5. Todo en minúsculas excepto la primera letra\n"
             "6. Describe el ASUNTO ESPECÍFICO, no el actor\n"
-            "7. NO uses genéricas como 'Gestión', 'Noticias', 'Eventos'\n\n"
-            "CORRECTOS: 'Resultados financieros del trimestre', 'Expansión de la red de sucursales'\n"
-            "INCORRECTOS: 'Seguimiento derechos laborales fusiones', 'Regulacion sector'\n\n"
+            "7. NO uses genéricas como 'Gestión', 'Noticias', 'Eventos'\n"
+            "8. La frase DEBE terminar en un SUSTANTIVO o ADJETIVO, NUNCA en artículo, preposición o determinante\n"
+            "   INCORRECTO: 'Impacto de la', 'Análisis del', 'Regulación de'\n"
+            "   CORRECTO: 'Impacto ambiental', 'Análisis financiero', 'Regulación bancaria'\n\n"
+            "CORRECTOS: 'Resultados financieros trimestrales', 'Expansión de sucursales'\n"
+            "INCORRECTOS: 'Seguimiento derechos laborales fusiones', 'Impacto de una', 'Análisis del nuevo'\n\n"
             'JSON: {"subtema":"..."}')
         try:
             resp=call_with_retries(openai.ChatCompletion.create,model=OPENAI_MODEL_CLASIFICACION,
-                messages=[{"role":"user","content":prompt}],max_tokens=50,temperature=0.0,response_format={"type":"json_object"})
+                messages=[{"role":"user","content":prompt}],max_tokens=80,temperature=0.0,response_format={"type":"json_object"})
             u=resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
             if u:
                 st.session_state['tokens_input']+=(u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
@@ -1344,6 +1415,15 @@ class ClasificadorSubtema:
             genericas={"gestión","gestion","actividades","acciones","noticias","información","informacion","eventos","varios","sin tema","actividad corporativa","noticias corporativas","gestión empresarial","cobertura informativa","gestión integral"}
             if string_norm_label(et) in {string_norm_label(g) for g in genericas} or len(et.split())<2:
                 et=self._refinar(tm,kw,rm)
+            # Validar completitud
+            et = _validar_etiqueta_completa(
+                et,
+                titulos_grp=titulos_grp,
+                resumenes_grp=resumenes_grp,
+                marca=self.marca,
+                aliases=self.aliases,
+                fallback_fn=self._fallback
+            )
         except: et=self._fallback(titulos_grp)
         et=capitalizar_etiqueta(et); self._cache[ck]=et; return et
 
@@ -1352,16 +1432,28 @@ class ClasificadorSubtema:
         prompt=(
             "Estos títulos comparten un tema. Genera una frase temática COHERENTE en español de 3-5 palabras.\n\n"
             f"Títulos: {' | '.join(titulos[:4])}\nKeywords: {kw}{ctx}\n\n"
-            "Debe ser frase natural con preposiciones. Tildes correctas. Primera letra mayúscula.\n"
+            "REGLAS:\n"
+            "- Debe ser frase natural con preposiciones donde corresponda\n"
+            "- Tildes correctas. Primera letra mayúscula\n"
+            "- DEBE terminar en SUSTANTIVO o ADJETIVO, NUNCA en preposición/artículo\n"
+            "  INCORRECTO: 'Impacto de la', 'Regulación del'\n"
+            "  CORRECTO: 'Impacto regulatorio', 'Regulación sectorial'\n\n"
             'JSON: {"subtema":"..."}')
         try:
             resp=call_with_retries(openai.ChatCompletion.create,model=OPENAI_MODEL_CLASIFICACION,
-                messages=[{"role":"user","content":prompt}],max_tokens=50,temperature=0.1,response_format={"type":"json_object"})
+                messages=[{"role":"user","content":prompt}],max_tokens=80,temperature=0.1,response_format={"type":"json_object"})
             u=resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
             if u:
                 st.session_state['tokens_input']+=(u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
                 st.session_state['tokens_output']+=(u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
-            return limpiar_tema_geografico(limpiar_tema(json.loads(resp.choices[0].message.content).get("subtema","Varios")),self.marca,self.aliases)
+            raw = json.loads(resp.choices[0].message.content).get("subtema","Varios")
+            et = limpiar_tema_geografico(limpiar_tema(raw),self.marca,self.aliases)
+            # Validar completitud del resultado refinado
+            if not _frase_esta_completa(et):
+                et = _recortar_frase_completa(et)
+                if not _frase_esta_completa(et):
+                    return self._fallback(titulos)
+            return et
         except: return self._fallback([])
 
     def _fallback(self,titulos):
@@ -1372,7 +1464,13 @@ class ClasificadorSubtema:
                 if len(w)>4: palabras.append(w)
         if palabras:
             top=[w for w,_ in Counter(palabras).most_common(3)]
-            if len(top)>=2: return capitalizar_etiqueta(f"{top[0]} de {top[1]}")
+            if len(top)>=2:
+                # Construir frase y verificar completitud
+                frase = f"{top[0]} de {top[1]}"
+                if _frase_esta_completa(frase):
+                    return capitalizar_etiqueta(frase)
+                # Si "de X" no funciona, concatenar como adjetivo
+                return capitalizar_etiqueta(f"{top[0]} {top[1]}")
             return capitalizar_etiqueta(top[0])
         return "Cobertura informativa general"
 
@@ -1399,9 +1497,44 @@ class ClasificadorSubtema:
         subtemas=dedup_labels(subtemas,UMBRAL_DEDUP_LABEL)
         pbar.progress(0.93,"Fase 6 · Consistencia...")
         subtemas=self._consistencia(subtemas,ae,pbar)
+        # Fase 7: Validación final de completitud
+        pbar.progress(0.96,"Fase 7 · Validando completitud...")
+        subtemas = self._validar_completitud_final(subtemas, textos, titulos, resumenes)
         subtemas=[capitalizar_etiqueta(s) for s in subtemas]
         nf=len(set(subtemas)); pbar.progress(1.0,f"{nf} subtemas")
         st.info(f"Subtemas: **{nf}** · Grupos: **{ng}**"); return subtemas
+
+    def _validar_completitud_final(self, subtemas, textos, titulos, resumenes):
+        """Pase final: detecta y repara etiquetas que terminan en preposición/artículo."""
+        # Agrupar por subtema para tener contexto
+        por_subtema = defaultdict(list)
+        for i, s in enumerate(subtemas):
+            por_subtema[s].append(i)
+
+        resultado = list(subtemas)
+        for sub, idxs in por_subtema.items():
+            if _frase_esta_completa(sub):
+                continue
+            # Intentar recortar
+            recortada = _recortar_frase_completa(sub)
+            if _frase_esta_completa(recortada) and len(recortada.split()) >= 2:
+                for i in idxs:
+                    resultado[i] = capitalizar_etiqueta(recortada)
+                continue
+            # Regenerar con contexto
+            tit_grp = [titulos[i] for i in idxs[:6]]
+            res_grp = [resumenes[i] for i in idxs[:3]]
+            nueva = _validar_etiqueta_completa(
+                sub,
+                titulos_grp=tit_grp,
+                resumenes_grp=res_grp,
+                marca=self.marca,
+                aliases=self.aliases,
+                fallback_fn=self._fallback
+            )
+            for i in idxs:
+                resultado[i] = capitalizar_etiqueta(nueva)
+        return resultado
 
     def _consistencia(self,subtemas,ae,pbar):
         ps=defaultdict(list)
@@ -1456,28 +1589,52 @@ def consolidar_temas(subtemas,textos,pbar):
         pbar.progress(0.50+0.40*(k/max(tc,1)),f"Tema {k+1}/{tc}...")
         if len(ls)==1:
             nombre=ls[0]; p=nombre.split()
-            if len(p)>3: nombre=" ".join(p[:3])
+            if len(p)>3:
+                nombre = _recortar_frase_completa(" ".join(p), max_palabras=4)
         else:
             prompt=(
                 "Genera UNA categoría temática en español (2-4 palabras), frase coherente con preposiciones.\n\n"
                 f"SUBTEMAS:\n"+"\n".join(f"  · {s}" for s in ls[:10])+"\n\n"
-                "Tildes correctas. Primera letra mayúscula, resto minúsculas. Sin marcas ni ciudades.\n"
+                "REGLAS:\n"
+                "- Tildes correctas. Primera letra mayúscula, resto minúsculas\n"
+                "- Sin marcas ni ciudades\n"
+                "- DEBE terminar en SUSTANTIVO o ADJETIVO\n"
+                "- NUNCA terminar en: de, del, la, el, los, las, un, una, al, en, con, por, para, su, sus\n"
+                "  INCORRECTO: 'Impacto de la', 'Regulación del'\n"
+                "  CORRECTO: 'Impacto regulatorio', 'Regulación sectorial'\n\n"
                 "Responde SOLO el nombre del tema")
             try:
                 resp=call_with_retries(openai.ChatCompletion.create,model=OPENAI_MODEL_CLASIFICACION,
-                    messages=[{"role":"user","content":prompt}],max_tokens=20,temperature=0.0)
+                    messages=[{"role":"user","content":prompt}],max_tokens=60,temperature=0.0)
                 u=resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
                 if u:
                     st.session_state['tokens_input']+=(u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
                     st.session_state['tokens_output']+=(u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
                 nombre=limpiar_tema(resp.choices[0].message.content.strip().replace('"','').replace('.',''))
             except: nombre=ls[0]
+        # Validar completitud del nombre del tema
+        if not _frase_esta_completa(nombre):
+            nombre = _recortar_frase_completa(nombre, max_palabras=4)
+            if not _frase_esta_completa(nombre):
+                # Usar el subtema más frecuente del grupo como fallback
+                freq = Counter(subtemas)
+                nombre = max(ls, key=lambda s: freq.get(s, 0))
+                nombre = _recortar_frase_completa(nombre, max_palabras=4)
         for sub in ls: mt[sub]=nombre
     for sub in uc: mt[sub]=sub
     tf=[mt.get(sub,sub) for sub in subtemas]
     pbar.progress(0.92,"Deduplicando temas...")
     tf=dedup_labels(tf,UMBRAL_DEDUP_LABEL)
-    tf=[capitalizar_etiqueta(t) for t in tf]
+    # Validación final de completitud en temas
+    pbar.progress(0.95,"Validando completitud de temas...")
+    tf_validados = []
+    for t in tf:
+        if _frase_esta_completa(t):
+            tf_validados.append(capitalizar_etiqueta(t))
+        else:
+            recortado = _recortar_frase_completa(t)
+            tf_validados.append(capitalizar_etiqueta(recortado) if _frase_esta_completa(recortado) else capitalizar_etiqueta(t))
+    tf = tf_validados
     st.info(f"Temas: **{len(set(tf))}** (máx: {NUM_TEMAS_MAX})")
     pbar.progress(1.0,"Temas listos"); return tf
 
@@ -1734,7 +1891,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Sistema de Análisis de Noticias</div>
-            <div class="app-header-version">v15.0 · tildes · frases coherentes · brand-aware · visual overhaul</div>
+            <div class="app-header-version">v15.1 · fix frases incompletas · validación de completitud</div>
         </div>
         <div class="app-header-badge">IA Powered</div>
     </div>""",unsafe_allow_html=True)
@@ -1814,6 +1971,6 @@ def main():
                 pwd=st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct=pwd; st.rerun()
 
     with tab2: render_quick_tab()
-    st.markdown('<div class="footer">v15.0.0 · Sistema de Análisis de Noticias con IA · Realizado por Johnathan Cortés ©</div>',unsafe_allow_html=True)
+    st.markdown('<div class="footer">v15.1.0 · Sistema de Análisis de Noticias con IA · Realizado por Johnathan Cortés ©</div>',unsafe_allow_html=True)
 
 if __name__=="__main__": main()
