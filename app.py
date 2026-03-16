@@ -1697,8 +1697,10 @@ def run_dossier_logic(sheet):
             split_rows.append(nr)
     for idx,row in enumerate(split_rows): row.update({"original_index":idx,"is_duplicate":False})
     processed=detectar_duplicados_avanzado(split_rows,km)
+
     for row in processed:
-        if row["is_duplicate"]: row.update({km["tonoiai"]:"Duplicada",km["tema"]:"Duplicada",km["subtema"]:"Duplicada"})
+        if row["is_duplicate"]: 
+        row.update({km["tonoiai"]:"Duplicada",km["tema"]:"-",km["subtema"]:"-"})
     return processed,km
 
 def fix_links_by_media_type(row,km):
