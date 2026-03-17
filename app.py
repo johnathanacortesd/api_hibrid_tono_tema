@@ -1477,15 +1477,33 @@ def run_dossier_logic(sheet):
     return processed, km
 
 def fix_links_by_media_type(row, km):
-    tkey = km.get("tipodemedio"); ln = km.get("link_nota"); ls = km.get("link_streaming")
-    if not(tkey and ln and ls): return
-    tipo = row.get(tkey, ""); rl = row.get(ln) or {"value":"","url":None}; rs = row.get(ls) or {"value":"","url":None}
+    tkey = km.get("tipodemedio")
+    ln   = km.get("link_nota")
+    ls   = km.get("link_streaming")
+    if not (tkey and ln and ls):
+        return
+
+    tipo = row.get(tkey, "")
+    rl   = row.get(ln)  or {"value": "", "url": None}
+    rs   = row.get(ls)  or {"value": "", "url": None}
+
     hurl = lambda x: isinstance(x, dict) and bool(x.get("url"))
-    if tipo in ("Radio","Televisión"): row[ls] = {"value":"","url":None}
-    elif tipo == "Internet": row[ln], row[ls] = rs, rl
-    elif tipo in ("Prensa","Revista"):
-        if not hurl(rl) and hurl(rs): row[ln] = rs
-        row[ls] = {"value":"","url":None}
+
+    if tipo in ("Radio", "Televisión"):
+        # Si el link llegó en la columna de streaming en lugar de nota, lo movemos
+        if not hurl(rl) and hurl(rs):
+            row[ln] = rs
+        # Streaming no aplica para Radio/TV: siempre se limpia
+        row[ls] = {"value": "", "url": None}
+
+    elif tipo == "Internet":
+        # Internet: link_nota ← streaming, link_streaming ← nota (intercambio original)
+        row[ln], row[ls] = rs, rl
+
+    elif tipo in ("Prensa", "Revista"):
+        if not hurl(rl) and hurl(rs):
+            row[ln] = rs
+        row[ls] = {"value": "", "url": None}
 
 def generate_output_excel(rows, km):
     wb = Workbook(); ws = wb.active; ws.title = "Resultado"
