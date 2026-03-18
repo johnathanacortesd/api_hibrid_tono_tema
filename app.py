@@ -23,6 +23,7 @@ import hashlib
 from typing import List, Dict, Tuple, Optional, Any
 import joblib
 import gc
+import requests
 
 # ======================================
 # Configuracion general
@@ -500,6 +501,25 @@ def get_embedding_cache(): return st.session_state['_emb_cache']
 # ======================================
 # Utilidades
 # ======================================
+
+# ======================================
+# Carga de mapas desde GitHub (secrets)
+# ======================================
+@st.cache_data(ttl=3600)
+def _cargar_mapa_excel(url: str) -> pd.DataFrame:
+    """
+    Descarga y cachea un Excel desde una URL (GitHub raw).
+    TTL de 1 hora: si actualizas el archivo en GitHub, la caché
+    se refresca sola o puedes ajustar ttl según necesites.
+    """
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        return pd.read_excel(io.BytesIO(resp.content))
+    except Exception as e:
+        st.error(f"Error al cargar mapa desde GitHub: {e}")
+        st.stop()
+
 def check_password():
     if st.session_state.get("password_correct", False): return True
     st.markdown("""
@@ -1468,12 +1488,93 @@ def consolidar_temas(subtemas, textos, pbar):
 
     pbar.progress(0.88, "Dedup temas...")
     tf_validado = dedup_labels(tf_validado, UMBRAL_DEDUP_LABEL)
+
+    # ── Fusión de temas contenidos / semánticamente solapados ────────────────
+    # Captura casos como "Política" + "Política y gobierno" que dedup_labels
+    # no alcanza por diferencia de longitud en los embeddings.
+    pbar.progress(0.90, "Fusionando temas solapados...")
+    mapa_fusion_temas = _fusionar_temas_contenidos(tf_validado)
+    if mapa_fusion_temas:
+        tf_validado = [mapa_fusion_temas.get(t, t) for t in tf_validado]
+        n_fusionados = len(mapa_fusion_temas)
+        st.caption(f"ℹ️ {n_fusionados} tema(s) fusionado(s) por contención o solapamiento semántico.")
+    # ─────────────────────────────────────────────────────────────────────────
+
     pbar.progress(0.92, "Validando tema ≠ subtema...")
     tf_validado = _post_validar_tema_vs_subtema(tf_validado, subtemas)
     pbar.progress(0.95, "Completitud...")
     tf_validado = [capitalizar_etiqueta(_recortar_frase_completa(t) if not _frase_esta_completa(t) else t) for t in tf_validado]
     st.info(f"Temas: **{len(set(tf_validado))}** (de {len(set(subtemas))} subtemas) · Máx: {NUM_TEMAS_MAX}")
     pbar.progress(1.0, "Temas listos"); return tf_validado
+
+
+def _fusionar_temas_contenidos(temas: List[str]) -> Dict[str, str]:
+    """
+    Detecta y fusiona pares de temas donde uno está semánticamente contenido
+    en el otro. Cubre dos casos:
+
+    1. Contención literal: "Política" está dentro de "Política y gobierno"
+       → el más específico (más largo) absorbe al genérico.
+
+    2. Alta similitud semántica entre etiquetas cortas que dedup_labels no
+       alcanza (similitud 0.70-0.77): se baja el umbral localmente a 0.70
+       solo para pares donde uno contiene al otro como prefijo/sufijo.
+
+    Devuelve un mapa {tema_a_reemplazar: tema_canonico}.
+    """
+    unique = list(dict.fromkeys(temas))
+    if len(unique) < 2:
+        return {}
+
+    normed = {t: string_norm_label(t) for t in unique}
+    mapa: Dict[str, str] = {}
+
+    # Paso A — contención literal normalizada
+    # Si norm(A) es substring de norm(B) o viceversa, fusionar al más largo
+    for i, ta in enumerate(unique):
+        for tb in unique[i+1:]:
+            na, nb = normed[ta], normed[tb]
+            if not na or not nb:
+                continue
+            # Uno contiene al otro como palabra(s) completas
+            if (f" {na} " in f" {nb} ") or nb == na or nb.startswith(na + " ") or nb.endswith(" " + na):
+                # ta es más corto/genérico → absorber en tb (más largo/específico)
+                canon = tb if len(tb) >= len(ta) else ta
+                reemplazar = ta if canon == tb else tb
+                mapa[reemplazar] = canon
+            elif (f" {nb} " in f" {na} ") or na.startswith(nb + " ") or na.endswith(" " + nb):
+                canon = ta if len(ta) >= len(tb) else tb
+                reemplazar = tb if canon == ta else ta
+                mapa[reemplazar] = canon
+
+    # Paso B — similitud semántica relajada (0.70) entre etiquetas cortas
+    # Solo aplica a temas de ≤3 palabras donde ya hay cierta superposición léxica
+    umbral_relajado = 0.70
+    candidatos = [(t, normed[t]) for t in unique if len(t.split()) <= 3 and t not in mapa]
+    if len(candidatos) >= 2:
+        textos_c = [t for t, _ in candidatos]
+        embs = get_embeddings_batch(textos_c)
+        validos = [(textos_c[i], embs[i]) for i in range(len(textos_c)) if embs[i] is not None]
+        if len(validos) >= 2:
+            etqs, vecs = zip(*validos)
+            sim = cosine_similarity(np.array(vecs))
+            for i in range(len(etqs)):
+                for j in range(i+1, len(etqs)):
+                    if sim[i][j] >= umbral_relajado:
+                        ta, tb = etqs[i], etqs[j]
+                        if ta in mapa or tb in mapa:
+                            continue
+                        # Solo fusionar si hay superposición léxica real
+                        words_a = set(normed[ta].split())
+                        words_b = set(normed[tb].split())
+                        if words_a & words_b:  # intersección no vacía
+                            # El más frecuente en la lista original gana
+                            freq = Counter(temas)
+                            canon = ta if freq.get(ta, 0) >= freq.get(tb, 0) else tb
+                            reemplazar = tb if canon == ta else ta
+                            mapa[reemplazar] = canon
+
+    return mapa
 
 def _post_validar_tema_vs_subtema(temas, subtemas):
     tema_a_subtemas = defaultdict(set)
@@ -1595,7 +1696,7 @@ def generate_output_excel(rows, km):
 # ======================================
 # Proceso principal
 # ======================================
-async def run_full_process_async(df_file, reg_file, int_file, bn, ba, tpkl, epkl, mode):
+async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode):
     st.session_state.update({'tokens_input':0, 'tokens_output':0, 'tokens_embedding':0})
     get_embedding_cache().clear(); t0 = time.time()
     if "API" in mode:
@@ -1605,9 +1706,9 @@ async def run_full_process_async(df_file, reg_file, int_file, bn, ba, tpkl, epkl
         rows, km = run_dossier_logic(load_workbook(df_file, data_only=True).active)
         s.update(label="✓ Paso 1", state="complete")
     with st.status("Paso 2 · Mapeos", expanded=True) as s:
-        dfr  = pd.read_excel(reg_file)
+        dfr  = _cargar_mapa_excel(st.secrets["REGION_MAP_URL"])
         rmap = {str(k).lower().strip(): v for k, v in pd.Series(dfr.iloc[:,1].values, index=dfr.iloc[:,0]).to_dict().items()}
-        dfi  = pd.read_excel(int_file)
+        dfi  = _cargar_mapa_excel(st.secrets["INTERNET_MAP_URL"])
         imap = {str(k).lower().strip(): v for k, v in pd.Series(dfi.iloc[:,1].values, index=dfi.iloc[:,0]).to_dict().items()}
         for row in rows:
             mk = str(row.get(km.get("medio",""),"")).lower().strip()
@@ -1749,7 +1850,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.3 · subtemas concretos</div>
+            <div class="app-header-version">v17.5 · fusión temas solapados</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -1759,17 +1860,12 @@ def main():
     with tab1:
         if not st.session_state.get("processing_complete", False):
             with st.form("main_form"):
-                st.markdown('<div class="sec-label">Archivos de entrada</div>', unsafe_allow_html=True)
+                st.markdown('<div class="sec-label">Archivo de entrada</div>', unsafe_allow_html=True)
                 st.markdown("""
-                <div class="upload-zone">
-                    <div class="upload-zone-card"><div class="upload-zone-icon uz-dossier">📋</div><div class="upload-zone-text"><div class="upload-zone-title">Dossier</div><div class="upload-zone-desc">Noticias a analizar</div></div></div>
-                    <div class="upload-zone-card"><div class="upload-zone-icon uz-region">🗺️</div><div class="upload-zone-text"><div class="upload-zone-title">Región</div><div class="upload-zone-desc">Medios → regiones</div></div></div>
-                    <div class="upload-zone-card"><div class="upload-zone-icon uz-internet">🌐</div><div class="upload-zone-text"><div class="upload-zone-title">Internet</div><div class="upload-zone-desc">Medios digitales</div></div></div>
+                <div class="upload-zone" style="grid-template-columns:1fr">
+                    <div class="upload-zone-card"><div class="upload-zone-icon uz-dossier">📋</div><div class="upload-zone-text"><div class="upload-zone-title">Dossier</div><div class="upload-zone-desc">Noticias a analizar · Región e Internet se cargan desde GitHub</div></div></div>
                 </div>""", unsafe_allow_html=True)
-                c1, c2, c3 = st.columns(3)
-                f1 = c1.file_uploader("Dossier",  type=["xlsx"], label_visibility="collapsed", key="f1")
-                f2 = c2.file_uploader("Región",   type=["xlsx"], label_visibility="collapsed", key="f2")
-                f3 = c3.file_uploader("Internet", type=["xlsx"], label_visibility="collapsed", key="f3")
+                f1 = st.file_uploader("Dossier", type=["xlsx"], label_visibility="collapsed", key="f1")
 
                 st.markdown('<div class="sec-label">Configuración</div>', unsafe_allow_html=True)
                 cl, cr = st.columns([3, 2])
@@ -1797,10 +1893,10 @@ def main():
                 )
 
                 if st.form_submit_button("▶ Iniciar análisis", use_container_width=True, type="primary"):
-                    if not all([f1, f2, f3, bn.strip()]): st.error("Completa todos los campos.")
+                    if not all([f1, bn.strip()]): st.error("Completa todos los campos.")
                     else:
                         al = [a.strip() for a in bat.split(";") if a.strip()]
-                        asyncio.run(run_full_process_async(f1, f2, f3, bn, al, tpkl, epkl, mode))
+                        asyncio.run(run_full_process_async(f1, bn, al, tpkl, epkl, mode))
                         st.rerun()
         else:
             total = st.session_state.total_rows; uniq = st.session_state.unique_rows
@@ -1826,6 +1922,6 @@ def main():
                 st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
 
     with tab2: render_quick_tab()
-    st.markdown('<div class="footer">v17.3 · Análisis de Noticias con IA · Johnathan Cortés ©</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">v17.5 · Análisis de Noticias con IA · Johnathan Cortés ©</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
