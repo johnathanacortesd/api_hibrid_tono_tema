@@ -110,6 +110,7 @@ encontrar creer decir poner salir volver seguir llevar sentir cambiar
 """.split())
 
 _TRAILING_INCOMPLETE = {
+    # Preposiciones y artículos — sí dejan frase incompleta al final
     "de","del","la","el","los","las","un","una","unos","unas","al","su","sus",
     "en","con","sin","por","para","sobre","ante","bajo","contra","desde",
     "entre","hacia","hasta","mediante","tras","y","o","u","e","lo","que","se",
@@ -121,8 +122,15 @@ _TRAILING_INCOMPLETE = {
     "peor","peores","primer","primera","segundo","segunda","tercer","tercera",
     "más","mas","muy","tan","tanto","tanta","tantos","tantas",
     "mi","mis","tu","tus","nuestro","nuestra","nuestros","nuestras",
+    # Infinitivos y auxiliares — sí dejan frase incompleta
     "a","ha","he","ser","estar","haber","hacer","tener","poder","deber",
     "ir","dar","ver","saber","querer","llegar","pasar","decir","poner",
+    # NOTA: Los verbos conjugados (presenta, anuncia, lanza, etc.) fueron
+    # eliminados de esta lista. No pertenecen aquí porque cuando quedan al
+    # final de una frase (tras eliminar el objeto ciudad), la frase es
+    # semánticamente inválida pero no "incompleta" en el sentido de
+    # _recortar_frase_completa. El problema se maneja en limpiar_tema_geografico
+    # y en la validación de coherencia de _generar_etiqueta.
 }
 
 POS_VARIANTS = [
@@ -621,6 +629,7 @@ def limpiar_tema(tema):
     for px in ["subtema:", "tema:", "categoría:", "categoria:", "category:"]:
         if tema.lower().startswith(px):
             tema = tema[len(px):].strip()
+    # Recortar a máximo 7 palabras sin cortar en preposición/artículo
     tema = _recortar_frase_completa(tema, max_palabras=7)
     return capitalizar_etiqueta(tema) if tema else "Sin tema"
 
@@ -628,47 +637,93 @@ def limpiar_tema(tema):
 def limpiar_tema_geografico(tema, marca, aliases):
     if not tema:
         return "Sin tema"
-    palabras_originales = tema.split()
-    eliminar = set()
+
+    # ── Patrón de verbos conjugados que invalidan la frase si quedan expuestos ──
+    # Estas palabras NO son "trailing incomplete" (porque una frase puede terminar
+    # en verbo correctamente), pero SÍ indican que la frase quedó rota cuando
+    # aparecen DESPUÉS de una preposición al eliminar una ciudad intermedia.
+    _VERBOS_CONJUGADOS = {
+        "presenta","presentan","anuncia","anuncian","lanza","lanzan",
+        "realiza","realizan","desarrolla","desarrollan","ejecuta","ejecutan",
+        "gestiona","gestionan","impulsa","impulsan","promueve","promueven",
+        "lidera","lideran","encabeza","encabezan","inaugura","inauguran",
+        "aprueba","aprueban","firma","firman","suscribe","suscriben",
+        "invierte","invierten","construye","construyen","instala","instalan",
+        "entrega","entregan","recibe","reciben","solicita","solicitan",
+        "visita","visitan","recorre","recorren","atiende","atienden",
+        "destaca","destacan","señala","señalan","indica","indican",
+        "expresa","expresan","afirma","afirman","asegura","aseguran",
+        "informa","informan","reporta","reportan","advierte","advierten",
+        "propone","proponen","pide","piden","exige","exigen","apoya","apoyan",
+    }
+
+    # 1. Normalizar para limpieza (sin acentos, minúsculas)
+    tl = unidecode(tema.lower())
+
+    # 2. Eliminar nombres de marca y aliases
     for n in [marca] + [a for a in aliases if a]:
-        for w in unidecode(n.strip().lower()).split():
-            if w:
-                eliminar.add(w)
-    for c in CIUDADES_COLOMBIA:
-        for w in c.split():
-            eliminar.add(w)
-    for g in GENTILICIOS_COLOMBIA:
-        eliminar.add(g)
+        patron = r'\b' + re.escape(unidecode(n.strip().lower())) + r'\b'
+        tl = re.sub(patron, '', tl)
+
+    # 3. Eliminar ciudades/departamentos (más largo primero para evitar fragmentos)
+    ciudades_ordenadas = sorted(CIUDADES_COLOMBIA, key=len, reverse=True)
+    for ciudad in ciudades_ordenadas:
+        patron = r'\b' + re.escape(unidecode(ciudad.lower())) + r'\b'
+        tl = re.sub(patron, '', tl)
+
+    # 4. Eliminar gentilicios
+    for gentilicio in GENTILICIOS_COLOMBIA:
+        patron = r'\b' + re.escape(unidecode(gentilicio.lower())) + r'\b'
+        tl = re.sub(patron, '', tl)
+
+    # 5. Eliminar frases geográficas de Colombia
     frases_eliminar = [
         "en colombia", "de colombia", "del pais", "en el pais",
-        "nacional", "colombiano", "colombiana", "colombianos", "colombianas",
-        "territorio nacional"
+        "territorio nacional",
     ]
-    palabras_norm = unidecode(tema.lower()).split()
-    if len(palabras_originales) == len(palabras_norm):
-        palabras_resultado = []
-        for orig, norm in zip(palabras_originales, palabras_norm):
-            skip = norm in eliminar
-            if not skip:
-                for f in frases_eliminar:
-                    if norm in f.split():
-                        skip = True
-                        break
-            if not skip:
-                palabras_resultado.append(orig)
-        resultado = " ".join(palabras_resultado).strip()
-    else:
-        tl = unidecode(tema.lower())
-        for n in [marca] + [a for a in aliases if a]:
-            tl = re.sub(rf'\b{re.escape(unidecode(n.strip().lower()))}\b', '', tl)
-        for c in CIUDADES_COLOMBIA:
-            tl = re.sub(rf'\b{re.escape(c)}\b', '', tl)
-        for g in GENTILICIOS_COLOMBIA:
-            tl = re.sub(rf'\b{re.escape(g)}\b', '', tl)
-        for f in frases_eliminar:
-            tl = re.sub(rf'\b{re.escape(f)}\b', '', tl)
-        p = [x.strip() for x in tl.split() if x.strip()]
-        resultado = corregir_tildes(" ".join(p)) if p else ""
+    for frase in frases_eliminar:
+        tl = re.sub(r'\b' + re.escape(frase) + r'\b', '', tl)
+
+    # 6. Limpiar espacios múltiples
+    tl = re.sub(r'\s+', ' ', tl).strip()
+
+    # 7. Detectar si la frase quedó con un verbo conjugado expuesto:
+    #    Patrón: "... preposición verbo_conjugado ..." o termina en verbo conjugado
+    #    tras haber eliminado la ciudad que era el sujeto/objeto
+    palabras_resultado = tl.split()
+    frase_invalida = False
+    if palabras_resultado:
+        # Caso A: termina en verbo conjugado (el objeto fue la ciudad eliminada)
+        ultima = palabras_resultado[-1].rstrip(".,;:!?")
+        if ultima in _VERBOS_CONJUGADOS:
+            frase_invalida = True
+        # Caso B: "preposicion + verbo" en cualquier posición interna
+        for i in range(len(palabras_resultado) - 1):
+            w_curr = palabras_resultado[i].rstrip(".,;:!?")
+            w_next = palabras_resultado[i + 1].rstrip(".,;:!?")
+            if w_curr in {"de","del","en","a","al","para","por","con","sobre"} \
+               and w_next in _VERBOS_CONJUGADOS:
+                frase_invalida = True
+                break
+
+    if frase_invalida:
+        # La frase se rompió al quitar la ciudad — devolver "Sin tema"
+        # para que la capa superior (limpiar_tema / _generar_etiqueta) lo reintente
+        return "Sin tema"
+
+    # 8. Reconstruir preservando capitalización original
+    tokens_orig = tema.split()
+    tokens_norm = unidecode(tema.lower()).split()
+    norm_disponibles = tl.split()
+
+    resultado_tokens = []
+    for orig, norm in zip(tokens_orig, tokens_norm):
+        if norm_disponibles and norm == norm_disponibles[0]:
+            resultado_tokens.append(orig)
+            norm_disponibles.pop(0)
+
+    resultado = " ".join(resultado_tokens).strip()
+    resultado = corregir_tildes(resultado) if resultado else ""
     return limpiar_tema(resultado) if resultado.strip() else "Sin tema"
 
 
@@ -681,14 +736,35 @@ def string_norm_label(s):
 
 
 def _validar_estructura_subtema(etiqueta: str) -> bool:
+    """
+    Valida que la etiqueta sea una frase nominal editorial válida:
+    - Entre 3 y 7 palabras
+    - No empiece con verbo de titular ni termine en palabra de estado
+    - Si tiene ≤3 palabras, debe contener al menos una preposición/nexo
+      (evita "Avances operación canal", "Tarifas energía eléctrica" con 3 sustantivos)
+    """
     if not etiqueta or len(etiqueta.split()) < 2:
         return False
-    if len(etiqueta.split()) > 6:
+    if len(etiqueta.split()) > 7:
         return False
     if _PATRON_TITULAR.match(etiqueta):
         return False
     if _PATRON_ESTADO.search(etiqueta):
         return False
+
+    palabras = etiqueta.split()
+    # Para frases cortas (2-4 palabras), exigir al menos un nexo gramatical
+    # que indique que es una frase nominal completa y no una lista de palabras clave
+    if len(palabras) <= 4:
+        nexos = {
+            "de","del","para","sobre","en","con","por","ante","hacia",
+            "entre","sin","al","las","los","una","uno","que","como",
+            "y","o","a","e","u",
+        }
+        tiene_nexo = any(unidecode(p.lower().rstrip(".,;:!?")) in nexos for p in palabras[1:])
+        if not tiene_nexo:
+            return False
+
     return True
 
 
@@ -760,9 +836,14 @@ def _validar_etiqueta_completa(etiqueta, titulos_grp=None, resumenes_grp=None, m
     if titulos_grp and len(titulos_grp) > 0:
         try:
             prompt = (
-                f"La frase '{etiqueta}' está incompleta. Genera una frase temática COMPLETA en español de 3-5 palabras:\n\n"
+                f"La frase '{etiqueta}' está incompleta o es genérica. "
+                f"Genera una frase temática COMPLETA en español de 4-6 palabras "
+                f"con preposición (de/del/para/sobre/en):\n\n"
                 + "\n".join(f"  · {t[:120]}" for t in titulos_grp[:4])
-                + "\n\nREGLAS: terminar en sustantivo/adjetivo, tildes y ñ correctas.\n"
+                + "\n\nREGLAS: frase nominal con preposición, terminar en sustantivo/adjetivo, "
+                "tildes y ñ correctas, sin marcas ni ciudades.\n"
+                "CORRECTO: 'Proyecto de terminal de transportes', 'Operación del Canal del Dique'\n"
+                "INCORRECTO: 'Terminal transportes', 'Operación canal'\n"
                 'JSON: {"subtema":"..."}'
             )
             resp = call_with_retries(
@@ -1408,7 +1489,12 @@ class ClasificadorSubtema:
             raw = json.loads(resp.choices[0].message.content).get("subtema", "Varios")
             et = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
 
-            # Detectar patrón robótico: 2 sustantivos sin preposición
+            # Si limpiar_tema_geografico detectó que la frase quedó rota
+            # (verbo expuesto tras eliminar ciudad), regenerar directamente
+            if not et or et.strip().lower() == "sin tema":
+                et = self._refinar(tm, kw, rm, forzar_preposicion=True)
+
+            # Detectar patrón robótico: sustantivos sin preposición
             def _es_robotico(s):
                 palabras = s.split()
                 if len(palabras) == 2:
@@ -2450,7 +2536,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.7 · subtemas con frases nominales completas</div>
+            <div class="app-header-version">v17.8 · fix frases rotas + nexos obligatorios</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -2550,7 +2636,7 @@ def main():
         render_quick_tab()
 
     st.markdown(
-        '<div class="footer">v17.7 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
+        '<div class="footer">v17.8 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
         unsafe_allow_html=True
     )
 
