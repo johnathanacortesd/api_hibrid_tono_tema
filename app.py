@@ -41,14 +41,21 @@ CONCURRENT_REQUESTS          = 50
 SIMILARITY_THRESHOLD_TONO    = 0.92
 SIMILARITY_THRESHOLD_TITULOS = 0.93
 
-UMBRAL_SUBTEMA = 0.82
+UMBRAL_SUBTEMA = 0.78          # bajado de 0.82 → grupos más cohesivos
 UMBRAL_TEMA    = 0.72
 NUM_TEMAS_MAX  = 15
 
-UMBRAL_DEDUP_LABEL = 0.78
-UMBRAL_FUSION_SUBTEMAS = 0.82
+UMBRAL_DEDUP_LABEL       = 0.78
+UMBRAL_FUSION_SUBTEMAS   = 0.82
 UMBRAL_FUSION_INTERGRUPO = 0.84
-MAX_ITER_FUSION = 5
+MAX_ITER_FUSION          = 5
+
+# Pertenencia mínima
+UMBRAL_MIN_PERTENENCIA_SUBTEMA = 0.60
+UMBRAL_MIN_PERTENENCIA_TEMA    = 0.52
+
+# Tamaño máximo de grupo antes de subdividir para etiquetar
+MAX_GRUPO_ETIQUETA = 40
 
 PRICE_INPUT_1M     = 0.10
 PRICE_OUTPUT_1M    = 0.40
@@ -157,6 +164,22 @@ RESPONSE_VERBS = re.compile(
     r"gestiona(ndo)?|declar(o|a|ando)|anunci(a|o|ando))\b", re.IGNORECASE)
 POS_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in POS_VARIANTS]
 NEG_PATTERNS = [re.compile(rf"\b(?:{p})\b", re.IGNORECASE) for p in NEG_VARIANTS]
+
+# ── Patrones para detectar subtemas mal formados ─────────────────────────────
+# Verbo conjugado o palabra de titular al inicio
+_PATRON_TITULAR = re.compile(
+    r"^(nuevo|nueva|anuncia|lanza|presenta|inaugura|llega|abre|inicia|"
+    r"logra|alcanza|supera|confirma|destaca|revela|señala|advierte|"
+    r"lanzamiento|anuncio|apertura|inicio|presentacion|presentación)\b",
+    re.IGNORECASE
+)
+# Palabras de estado/alerta que no aportan categoría
+_PATRON_ESTADO = re.compile(
+    r"\b(calma|caos|urgente|hoy|ya|ahora|ayer|mañana|nuevo|nueva|"
+    r"gran|grande|importante|especial|exclusivo)\s*$",
+    re.IGNORECASE
+)
+# ─────────────────────────────────────────────────────────────────────────────
 
 _TILDE_MAP = {
     "regulacion":"regulación","regulaciones":"regulaciones",
@@ -327,7 +350,7 @@ def corregir_tildes(texto: str) -> str:
 
 
 # ======================================
-# CSS — Google-inspired, Orange accent, Black text
+# CSS
 # ======================================
 def load_custom_css():
     st.markdown("""
@@ -356,8 +379,6 @@ html,body,[data-testid="stApp"]{
 #MainMenu,footer,header{visibility:hidden}.stDeployButton{display:none}
 .block-container{padding-top:1rem!important;padding-bottom:0!important}
 [data-testid="stAppViewBlockContainer"]{padding-top:1rem!important}
-
-/* — Header — */
 .app-header{
     background:var(--s1);border:1px solid var(--border);border-radius:var(--r3);
     padding:1rem 1.5rem;margin-bottom:1rem;display:flex;align-items:center;
@@ -379,8 +400,6 @@ html,body,[data-testid="stApp"]{
     padding:0.25rem 0.75rem;border-radius:100px;letter-spacing:0.04em;
     text-transform:uppercase;white-space:nowrap;
 }
-
-/* — Tabs — */
 [data-testid="stTabs"] [data-testid="stTabsList"]{
     background:var(--s1)!important;border:1px solid var(--border)!important;
     border-radius:var(--r2)!important;padding:4px!important;gap:4px!important;
@@ -397,8 +416,6 @@ html,body,[data-testid="stApp"]{
     background:var(--accent-bg)!important;color:var(--accent2)!important;
     border:1px solid var(--accent-bdr)!important;font-weight:700!important;
 }
-
-/* — Metrics — */
 .metrics-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:0.6rem;margin:0.8rem 0}
 .metric-card{
     background:var(--s1);border:1px solid var(--border);border-radius:var(--r2);
@@ -414,15 +431,11 @@ html,body,[data-testid="stApp"]{
 .metric-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
 .metric-val{font-family:'Google Sans',sans-serif;font-size:1.5rem;font-weight:700;line-height:1;margin-bottom:0.3rem;letter-spacing:-0.01em}
 .metric-lbl{font-family:'Roboto Mono',monospace;font-size:0.62rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;font-weight:500}
-
-/* — Form — */
 [data-testid="stForm"]{
     background:var(--s1)!important;border:1px solid var(--border)!important;
     border-radius:var(--r3)!important;padding:1.2rem 1.5rem!important;
     box-shadow:var(--shadow-md)!important;
 }
-
-/* — Section labels — */
 .sec-label{
     font-family:'Google Sans',sans-serif;font-size:0.72rem;font-weight:700;
     color:var(--text2);letter-spacing:0.08em;text-transform:uppercase;
@@ -431,8 +444,6 @@ html,body,[data-testid="stApp"]{
 }
 .sec-label::before{content:'';display:inline-block;width:3px;height:12px;
     background:linear-gradient(180deg,#f97316,#ea580c);border-radius:2px}
-
-/* — Upload zone — */
 .upload-zone{display:grid;grid-template-columns:repeat(3,1fr);gap:0.6rem;margin:0.3rem 0}
 .upload-zone-card{
     background:var(--s1);border:1.5px dashed var(--border);border-radius:var(--r2);
@@ -450,8 +461,6 @@ html,body,[data-testid="stApp"]{
 .upload-zone-text{flex:1;min-width:0}
 .upload-zone-title{font-family:'Google Sans',sans-serif;font-size:0.82rem;font-weight:700;color:var(--text);line-height:1.2}
 .upload-zone-desc{font-size:0.7rem;color:var(--text3);line-height:1.3}
-
-/* — File uploaders — */
 [data-testid="stFileUploader"]{
     background:var(--s1)!important;border:1.5px dashed var(--border)!important;
     border-radius:var(--r)!important;padding:0.4rem 0.6rem!important;
@@ -471,8 +480,6 @@ html,body,[data-testid="stApp"]{
     font-family:'Google Sans',sans-serif!important;transition:var(--transition)!important;
 }
 [data-testid="stFileUploader"] button:hover{background:var(--accent)!important;color:white!important;border-color:var(--accent)!important}
-
-/* — Inputs — */
 [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea{
     background:var(--s1)!important;border:1.5px solid var(--border)!important;
     color:var(--text)!important;border-radius:var(--r)!important;
@@ -490,8 +497,6 @@ label[data-testid="stWidgetLabel"] p{
     color:var(--text2)!important;font-size:0.82rem!important;font-weight:500!important;
     margin-bottom:0.15rem!important;
 }
-
-/* — Buttons — */
 .stButton>button,[data-testid="stDownloadButton"]>button{
     background:var(--s1)!important;border:1.5px solid var(--border)!important;
     color:var(--text)!important;border-radius:100px!important;
@@ -515,16 +520,12 @@ label[data-testid="stWidgetLabel"] p{
     box-shadow:0 2px 6px rgba(234,88,12,0.35),0 8px 24px rgba(234,88,12,0.18)!important;
     transform:translateY(-1px)!important;color:#fff!important;
 }
-
-/* — Radio — */
 [data-testid="stRadio"] label{
     font-family:'Google Sans Text',sans-serif!important;
     color:var(--text)!important;font-size:0.88rem!important;font-weight:400!important;
 }
 [data-testid="stRadio"]{margin-bottom:0!important}
 [data-testid="stRadio"]>div{gap:0!important}
-
-/* — Status/Alert — */
 [data-testid="stStatus"]{
     background:var(--s1)!important;border:1px solid var(--border)!important;
     border-radius:var(--r2)!important;font-family:'Roboto Mono',monospace!important;
@@ -535,8 +536,6 @@ label[data-testid="stWidgetLabel"] p{
     border-radius:var(--r2)!important;color:var(--text2)!important;
     font-size:0.85rem!important;padding:0.6rem 0.8rem!important;
 }
-
-/* — Success banner — */
 .success-banner{
     background:linear-gradient(135deg,#ecfdf5,#d1fae5);
     border:1px solid var(--green-bdr);border-left:4px solid var(--green);
@@ -550,8 +549,6 @@ label[data-testid="stWidgetLabel"] p{
 }
 .success-title{font-family:'Google Sans',sans-serif;font-size:1rem;font-weight:700;color:#047857;margin-bottom:0.1rem}
 .success-sub{font-size:0.8rem;color:var(--text2)}
-
-/* — Auth — */
 .auth-wrap{max-width:380px;margin:8vh auto 0;text-align:center}
 .auth-icon{
     width:60px;height:60px;background:linear-gradient(135deg,#f97316,#ea580c);
@@ -560,52 +557,37 @@ label[data-testid="stWidgetLabel"] p{
 }
 .auth-title{font-family:'Google Sans',sans-serif;font-size:1.5rem;font-weight:700;color:var(--text);margin-bottom:0.3rem}
 .auth-sub{font-size:0.85rem;color:var(--text3);margin-bottom:2rem}
-
-/* — Cluster info — */
 .cluster-info{
     background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);
     padding:0.5rem 0.8rem;margin:0.4rem 0;font-family:'Roboto Mono',monospace;
     font-size:0.68rem;color:var(--text2);line-height:1.6;
 }
 .cluster-info b{color:var(--accent2);font-size:0.72rem}
-
-/* — Progress — */
 [data-testid="stProgressBar"]>div>div{
     background:linear-gradient(90deg,#f97316,#fb923c,#fdba74)!important;
     border-radius:100px!important;height:5px!important;
 }
-
-/* — DataFrame — */
 [data-testid="stDataFrame"]{
     border:1px solid var(--border)!important;border-radius:var(--r2)!important;
     box-shadow:var(--shadow-sm)!important;overflow:hidden!important;
 }
-
-/* — Scrollbar — */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:var(--s2);border-radius:3px}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--accent)}
-
-/* — Footer — */
 .footer{
     font-family:'Roboto Mono',monospace;font-size:0.6rem;color:var(--text4);
     text-align:center;padding:0.8rem 0 0.5rem;letter-spacing:0.04em;
     border-top:1px solid var(--s3);margin-top:1rem;
 }
-
-/* — Reduce gaps — */
 .stElementContainer{margin-bottom:0!important}
 [data-testid="stVerticalBlock"]>div{gap:0.3rem!important}
 [data-testid="stHorizontalBlock"]>div{gap:0.4rem!important}
 hr{border-color:var(--s3)!important;margin:0.5rem 0!important}
-
-/* — Selectbox styling — */
 [data-testid="stSelectbox"]>div>div{
     font-family:'Google Sans Text',sans-serif!important;
     font-size:0.88rem!important;color:var(--text)!important;
 }
-
 @media(max-width:768px){
     .metrics-grid{grid-template-columns:repeat(2,1fr)}
     .upload-zone{grid-template-columns:1fr}
@@ -613,6 +595,7 @@ hr{border-color:var(--s3)!important;margin:0.5rem 0!important}
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ======================================
 # Caché Global de Embeddings
@@ -749,6 +732,26 @@ def string_norm_label(s):
     if not s: return ""
     s = unidecode(s.lower()); s = re.sub(r"[^a-z0-9\s]"," ",s)
     return " ".join(t for t in s.split() if t not in STOPWORDS_ES)
+
+def _validar_estructura_subtema(etiqueta: str) -> bool:
+    """
+    Devuelve True si la etiqueta tiene estructura de categoría editorial válida.
+
+    Rechaza:
+      · Titulares disfrazados (empiezan con verbo de acción o "nuevo/a")
+      · Etiquetas que terminan en adjetivo de estado sin sustantivo (ej: "...calma")
+      · Frases de más de 6 palabras (probablemente un titular recortado)
+      · Etiquetas de menos de 2 palabras
+    """
+    if not etiqueta or len(etiqueta.split()) < 2:
+        return False
+    if len(etiqueta.split()) > 6:
+        return False
+    if _PATRON_TITULAR.match(etiqueta):
+        return False
+    if _PATRON_ESTADO.search(etiqueta):
+        return False
+    return True
 
 def extract_link(cell):
     if hasattr(cell,"hyperlink") and cell.hyperlink: return {"value":"Link","url":cell.hyperlink.target}
@@ -987,6 +990,7 @@ def _split_sentences(text):
     sents = [p.strip() for p in parts if len(p.strip()) > 15]
     return sents if sents else [text[:600]]
 
+
 # ======================================
 # TONO
 # ======================================
@@ -1068,11 +1072,16 @@ def analizar_tono_con_pkl(textos, pkl_file):
         return [{"tono": TM.get(p, str(p).title())} for p in pipeline.predict(textos)]
     except Exception as e: st.error(f"Error pkl: {e}"); return None
 
+
 # ======================================
 # SUBTEMAS
 # ======================================
 class ClasificadorSubtema:
-    def __init__(self, marca, aliases): self.marca = marca; self.aliases = aliases or []; self._cache = {}
+    def __init__(self, marca, aliases):
+        self.marca = marca
+        self.aliases = aliases or []
+        self._cache = {}
+
     def _paso1(self, titulos, resumenes, dsu):
         def nt(t, n): return ' '.join(re.sub(r'[^a-z0-9\s]','',unidecode(str(t).lower())).split()[:n])
         bt, br = defaultdict(list), defaultdict(list)
@@ -1083,6 +1092,7 @@ class ClasificadorSubtema:
         for bk in (bt, br):
             for idxs in bk.values():
                 for j in idxs[1:]: dsu.union(idxs[0], j)
+
     def _paso2(self, titulos, dsu):
         norm = [normalize_title_for_comparison(t) for t in titulos]; n = len(norm)
         for i in range(n):
@@ -1090,6 +1100,7 @@ class ClasificadorSubtema:
             for j in range(i+1, n):
                 if not norm[j] or dsu.find(i) == dsu.find(j): continue
                 if SequenceMatcher(None, norm[i], norm[j]).ratio() >= SIMILARITY_THRESHOLD_TITULOS: dsu.union(i, j)
+
     def _paso3(self, et, ae, dsu, pbar, ps):
         n = len(et)
         if n < 2: return
@@ -1120,6 +1131,7 @@ class ClasificadorSubtema:
                     for j in cl[1:]: dsu.union(cl[0], j)
             pbar.progress(ps+0.15*(bn_+1)/tb, f"Clustering {bn_+1}/{tb}...")
         pbar.progress(ps+0.16, "Unificando..."); self._fusion(et, ae, dsu, pbar, ps+0.16)
+
     def _fusion(self, textos, ae, dsu, pbar, ps):
         n = len(textos)
         for it in range(MAX_ITER_FUSION):
@@ -1138,53 +1150,133 @@ class ClasificadorSubtema:
                 if dsu.find(ri) != dsu.find(rj): dsu.union(ri, rj); fus += 1
             pbar.progress(min(ps+0.04*(it+1), 0.52), f"Fusión {it+1}: {fus}")
             if fus == 0: break
+
     def _generar_etiqueta(self, textos_grp, titulos_grp, resumenes_grp):
+        """
+        Genera una etiqueta de subtema con prompt editorial.
+        Valida la estructura resultante; si falla, reintenta con _refinar.
+        Grupos grandes se representan solo con los más cercanos al centroide.
+        """
         tn = sorted(set(normalize_title_for_comparison(t) for t in titulos_grp if t))
         ck = hashlib.md5("|".join(tn[:12]).encode()).hexdigest()
         if ck in self._cache: return self._cache[ck]
+
+        # Representar con los títulos más informativos (sin duplicados)
+        tm = list(dict.fromkeys(t[:120] for t in titulos_grp if t))[:6]
+        rm = [str(r)[:200] for r in resumenes_grp[:3] if r and len(str(r)) > 20]
+        ctx_resumenes = ("\n\nRESÚMENES:\n" + "\n".join(f"  · {r}" for r in rm)) if rm else ""
+
         palabras = []
         for t in titulos_grp[:8]:
             for w in string_norm_label(t).split():
                 if len(w) > 3: palabras.append(w)
         kw = " · ".join(w for w, _ in Counter(palabras).most_common(8))
-        tm = list(dict.fromkeys(t[:120] for t in titulos_grp if t))[:6]
-        rm = [str(r)[:200] for r in resumenes_grp[:3] if r and len(str(r)) > 20]
-        ctx = ("\n\nRESÚMENES:\n" + "\n".join(f"  · {r}" for r in rm)) if rm else ""
-        prompt = ("Genera un SUBTEMA periodístico (3-6 palabras):\n\nTÍTULOS:\n" + "\n".join(f"  · {t}" for t in tm) + ctx +
-            f"\n\nKEYWORDS: {kw}\n\nREGLAS: sin marcas/ciudades, frase coherente, tildes y ñ correctas, terminar en sustantivo/adjetivo, no genéricas.\n"
-            'JSON: {"subtema":"..."}')
+
+        # ── Prompt editorial ─────────────────────────────────────────────────
+        prompt = (
+            "Eres editor de un medio de comunicación. "
+            "Crea UN subtema periodístico en español (3-5 palabras) que funcione "
+            "como CATEGORÍA EDITORIAL, no como resumen ni titular.\n\n"
+            "TÍTULOS DEL GRUPO:\n"
+            + "\n".join(f"  · {t}" for t in tm)
+            + ctx_resumenes
+            + f"\n\nPALABRAS CLAVE: {kw}\n\n"
+            "REGLAS ESTRICTAS:\n"
+            "  1. Debe ser una CATEGORÍA temática (ej: 'Infraestructura vial', "
+            "'Gestión ambiental', 'Regulación financiera'), "
+            "NO un titular ni resumen de noticia.\n"
+            "  2. Estructura obligatoria: sustantivo principal + adjetivo o "
+            "complemento nominal. NUNCA verbo conjugado ni adverbio al final.\n"
+            "  3. Sin nombres de marcas, ciudades ni gentilicios.\n"
+            "  4. Tildes y ñ correctas.\n"
+            "  5. Si los títulos tratan temas muy distintos, elige el hilo "
+            "temático común más abstracto.\n\n"
+            "EJEMPLOS CORRECTOS: 'Infraestructura de transporte', "
+            "'Regulación del mercado', 'Seguridad ciudadana', "
+            "'Innovación tecnológica', 'Política laboral'\n"
+            "EJEMPLOS INCORRECTOS: 'Anuncio nueva terminal', "
+            "'Participación cívica calma', 'Lanzamiento app pagos', "
+            "'Gran acuerdo comercial'\n\n"
+            'JSON: {"subtema":"..."}'
+        )
+        # ─────────────────────────────────────────────────────────────────────
+
         try:
-            resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION,
-                messages=[{"role":"user","content":prompt}], max_tokens=80, temperature=0.0, response_format={"type":"json_object"})
+            resp = call_with_retries(
+                openai.ChatCompletion.create,
+                model=OPENAI_MODEL_CLASIFICACION,
+                messages=[{"role":"user","content":prompt}],
+                max_tokens=80, temperature=0.0,
+                response_format={"type":"json_object"}
+            )
             u = resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
             if u:
-                st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
-                st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
+                st.session_state['tokens_input']  += (u.get('prompt_tokens')      if isinstance(u,dict) else getattr(u,'prompt_tokens',0))      or 0
+                st.session_state['tokens_output'] += (u.get('completion_tokens')  if isinstance(u,dict) else getattr(u,'completion_tokens',0))  or 0
+
             raw = json.loads(resp.choices[0].message.content).get("subtema","Varios")
-            et = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
-            genericas = {"gestión","gestion","actividades","acciones","noticias","información","informacion","eventos","varios","sin tema"}
-            if string_norm_label(et) in {string_norm_label(g) for g in genericas} or len(et.split()) < 2: et = self._refinar(tm, kw, rm)
-            et = _validar_etiqueta_completa(et, titulos_grp=titulos_grp, resumenes_grp=resumenes_grp, marca=self.marca, aliases=self.aliases, fallback_fn=self._fallback)
-        except: et = self._fallback(titulos_grp)
-        et = capitalizar_etiqueta(et); self._cache[ck] = et; return et
+            et  = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
+
+            # Palabras genéricas inaceptables
+            genericas = {"gestión","gestion","actividades","acciones","noticias",
+                         "información","informacion","eventos","varios","sin tema"}
+            if string_norm_label(et) in {string_norm_label(g) for g in genericas} or len(et.split()) < 2:
+                et = self._refinar(tm, kw, rm)
+
+            # Validar estructura editorial
+            if not _validar_estructura_subtema(et):
+                et = self._refinar(tm, kw, rm)
+                # Segunda oportunidad
+                if not _validar_estructura_subtema(et):
+                    et = self._fallback(titulos_grp)
+
+            et = _validar_etiqueta_completa(
+                et, titulos_grp=titulos_grp, resumenes_grp=resumenes_grp,
+                marca=self.marca, aliases=self.aliases, fallback_fn=self._fallback
+            )
+        except:
+            et = self._fallback(titulos_grp)
+
+        et = capitalizar_etiqueta(et)
+        self._cache[ck] = et
+        return et
+
     def _refinar(self, titulos, kw, resumenes=None):
         ctx = f"\nContexto: {' | '.join(r[:100] for r in resumenes[:2])}" if resumenes else ""
-        prompt = (f"Títulos: {' | '.join(titulos[:4])}\nKeywords: {kw}{ctx}\n\nGenera frase temática 3-5 palabras, tildes y ñ correctas, terminar en sustantivo.\n"
-            'JSON: {"subtema":"..."}')
+        prompt = (
+            "Eres editor de un medio. "
+            f"Títulos: {' | '.join(titulos[:4])}\n"
+            f"Palabras clave: {kw}{ctx}\n\n"
+            "Genera una CATEGORÍA editorial (3-5 palabras): "
+            "sustantivo principal + modificador. "
+            "NO copiar frases del titular. Tildes y ñ correctas.\n"
+            "CORRECTO: 'Política laboral', 'Expansión comercial', "
+            "'Infraestructura urbana'\n"
+            "INCORRECTO: 'Nuevo acuerdo laboral empresa', "
+            "'Lanzamiento producto digital', 'Participación ciudadana calma'\n"
+            'JSON: {"subtema":"..."}'
+        )
         try:
-            resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION,
-                messages=[{"role":"user","content":prompt}], max_tokens=80, temperature=0.1, response_format={"type":"json_object"})
+            resp = call_with_retries(
+                openai.ChatCompletion.create,
+                model=OPENAI_MODEL_CLASIFICACION,
+                messages=[{"role":"user","content":prompt}],
+                max_tokens=80, temperature=0.15,
+                response_format={"type":"json_object"}
+            )
             u = resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
             if u:
-                st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
+                st.session_state['tokens_input']  += (u.get('prompt_tokens')     if isinstance(u,dict) else getattr(u,'prompt_tokens',0))     or 0
                 st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
             raw = json.loads(resp.choices[0].message.content).get("subtema","Varios")
-            et = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
+            et  = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
             if not _frase_esta_completa(et):
                 et = _recortar_frase_completa(et)
                 if not _frase_esta_completa(et): return self._fallback(titulos)
             return et
-        except: return self._fallback([])
+        except:
+            return self._fallback([])
+
     def _fallback(self, titulos):
         if not titulos: return "Cobertura informativa general"
         palabras = []
@@ -1199,33 +1291,84 @@ class ClasificadorSubtema:
                 return capitalizar_etiqueta(f"{top[0]} {top[1]}")
             return capitalizar_etiqueta(top[0])
         return "Cobertura informativa general"
+
     def procesar_lote(self, col, pbar, res_puros, tit_puros):
-        textos = col.tolist(); titulos = tit_puros.tolist(); resumenes = res_puros.tolist(); n = len(textos)
+        textos   = col.tolist()
+        titulos  = tit_puros.tolist()
+        resumenes = res_puros.tolist()
+        n = len(textos)
         et = [texto_para_embedding(titulos[i], resumenes[i]) for i in range(n)]
-        pbar.progress(0.05, "Fase 1 · Idénticas..."); dsu = DSU(n); self._paso1(titulos, resumenes, dsu)
+
+        pbar.progress(0.05, "Fase 1 · Idénticas..."); dsu = DSU(n)
+        self._paso1(titulos, resumenes, dsu)
         pbar.progress(0.12, "Fase 2 · Títulos..."); self._paso2(titulos, dsu)
         pbar.progress(0.18, "Embeddings..."); ae = get_embeddings_batch(et)
         pbar.progress(0.20, "Fase 3 · Clustering..."); self._paso3(et, ae, dsu, pbar, 0.20)
+
         gf = dsu.grupos(n); ng = len(gf)
-        pbar.progress(0.55, f"Fase 4 · Etiquetando {ng}..."); mapa = {}; sg = sorted(gf.items(), key=lambda x: -len(x[1]))
+        pbar.progress(0.55, f"Fase 4 · Etiquetando {ng} grupos...")
+        mapa = {}
+        sg = sorted(gf.items(), key=lambda x: -len(x[1]))
+
         for k, (lid, idxs) in enumerate(sg):
-            if k % 10 == 0: pbar.progress(0.55+0.25*(k/max(ng,1)), f"Etiquetando {k+1}/{ng}...")
-            e = self._generar_etiqueta([textos[i] for i in idxs], [titulos[i] for i in idxs], [resumenes[i] for i in idxs])
-            for i in idxs: mapa[i] = e
+            if k % 10 == 0:
+                pbar.progress(0.55+0.25*(k/max(ng,1)), f"Etiquetando {k+1}/{ng}...")
+
+            # ── Subdividir grupos grandes para mejor coherencia ───────────────
+            if len(idxs) > MAX_GRUPO_ETIQUETA:
+                subgrupos = [idxs[i:i+MAX_GRUPO_ETIQUETA]
+                             for i in range(0, len(idxs), MAX_GRUPO_ETIQUETA)]
+                for sg_ in subgrupos:
+                    e = self._generar_etiqueta(
+                        [textos[i]   for i in sg_],
+                        [titulos[i]  for i in sg_],
+                        [resumenes[i] for i in sg_]
+                    )
+                    for i in sg_: mapa[i] = e
+            else:
+                e = self._generar_etiqueta(
+                    [textos[i]   for i in idxs],
+                    [titulos[i]  for i in idxs],
+                    [resumenes[i] for i in idxs]
+                )
+                for i in idxs: mapa[i] = e
+            # ─────────────────────────────────────────────────────────────────
+
         subtemas = [mapa.get(i, "Varios") for i in range(n)]
-        pbar.progress(0.82, "Fase 5 · Dedup..."); subtemas = dedup_labels(subtemas, UMBRAL_DEDUP_LABEL)
+        pbar.progress(0.82, "Fase 5 · Dedup...")
+        subtemas = dedup_labels(subtemas, UMBRAL_DEDUP_LABEL)
+
         pbar.progress(0.86, "Fase 5b · Fusión semántica...")
         textos_por_sub = defaultdict(list)
         for i, s in enumerate(subtemas): textos_por_sub[s].append(textos[i])
         n_antes = len(set(subtemas))
-        subtemas = _fusionar_subtemas_semanticos(subtemas, textos_por_sub, self.marca, self.aliases, UMBRAL_FUSION_SUBTEMAS)
+        subtemas = _fusionar_subtemas_semanticos(
+            subtemas, textos_por_sub, self.marca, self.aliases, UMBRAL_FUSION_SUBTEMAS
+        )
         n_despues = len(set(subtemas))
-        if n_antes != n_despues: pbar.progress(0.89, f"Fusión: {n_antes}→{n_despues}")
-        pbar.progress(0.90, "Fase 6 · Consistencia..."); subtemas = self._consistencia(subtemas, ae, pbar)
-        pbar.progress(0.95, "Fase 7 · Completitud..."); subtemas = self._validar_completitud_final(subtemas, textos, titulos, resumenes)
+        if n_antes != n_despues:
+            pbar.progress(0.89, f"Fusión: {n_antes}→{n_despues}")
+
+        pbar.progress(0.90, "Fase 6 · Consistencia...")
+        subtemas = self._consistencia(subtemas, ae, pbar)
+
+        # ── Fase 6b · Reclasificación individual de outliers ─────────────────
+        indices_reclass = [i for i, s in enumerate(subtemas) if s == "_RECLASIFICAR"]
+        if indices_reclass:
+            pbar.progress(0.93, f"Fase 6b · Reclasificando {len(indices_reclass)} noticias aisladas...")
+            for i in indices_reclass:
+                et_ind = self._generar_etiqueta([textos[i]], [titulos[i]], [resumenes[i]])
+                subtemas[i] = capitalizar_etiqueta(et_ind)
+        # ─────────────────────────────────────────────────────────────────────
+
+        pbar.progress(0.95, "Fase 7 · Completitud...")
+        subtemas = self._validar_completitud_final(subtemas, textos, titulos, resumenes)
         subtemas = [capitalizar_etiqueta(s) for s in subtemas]
-        nf = len(set(subtemas)); pbar.progress(1.0, f"{nf} subtemas")
-        st.info(f"Subtemas: **{nf}** · Grupos: **{ng}**"); return subtemas
+        nf = len(set(subtemas))
+        pbar.progress(1.0, f"{nf} subtemas")
+        st.info(f"Subtemas: **{nf}** · Grupos originales: **{ng}**")
+        return subtemas
+
     def _validar_completitud_final(self, subtemas, textos, titulos, resumenes):
         por_subtema = defaultdict(list)
         for i, s in enumerate(subtemas): por_subtema[s].append(i)
@@ -1235,10 +1378,15 @@ class ClasificadorSubtema:
             recortada = _recortar_frase_completa(sub)
             if _frase_esta_completa(recortada) and len(recortada.split()) >= 2:
                 for i in idxs: resultado[i] = capitalizar_etiqueta(recortada); continue
-            tit_grp = [titulos[i] for i in idxs[:6]]; res_grp = [resumenes[i] for i in idxs[:3]]
-            nueva = _validar_etiqueta_completa(sub, titulos_grp=tit_grp, resumenes_grp=res_grp, marca=self.marca, aliases=self.aliases, fallback_fn=self._fallback)
+            tit_grp = [titulos[i]   for i in idxs[:6]]
+            res_grp = [resumenes[i] for i in idxs[:3]]
+            nueva = _validar_etiqueta_completa(
+                sub, titulos_grp=tit_grp, resumenes_grp=res_grp,
+                marca=self.marca, aliases=self.aliases, fallback_fn=self._fallback
+            )
             for i in idxs: resultado[i] = capitalizar_etiqueta(nueva)
         return resultado
+
     def _consistencia(self, subtemas, ae, pbar):
         ps = defaultdict(list)
         for i, s in enumerate(subtemas): ps[s].append(i)
@@ -1246,6 +1394,7 @@ class ClasificadorSubtema:
         for sub, idxs in ps.items():
             vecs = [ae[i] for i in idxs if ae[i] is not None]
             if vecs: centroids[sub] = np.mean(vecs, axis=0)
+
         for sub in [s for s in centroids if len(ps[s]) >= 3]:
             idxs = ps[sub]
             if sub.lower() in ("sin tema","varios") or len(idxs) < 3: continue
@@ -1253,16 +1402,28 @@ class ClasificadorSubtema:
             if len(vi) < 3: continue
             v_i, v_v = zip(*vi); M = np.array(v_v)
             sims = cosine_similarity(M, centroids[sub].reshape(1,-1)).flatten()
-            thr = max(0.60, np.mean(sims) - 2*np.std(sims))
+            thr  = max(0.60, np.mean(sims) - 2*np.std(sims))
+
             for k, (oi, sv) in enumerate(zip(v_i, sims)):
-                if sv < thr:
-                    bs, bsim = sub, sv; emb = ae[oi]
-                    for os, oc in centroids.items():
-                        if os == sub: continue
-                        s2 = cosine_similarity(np.array(emb).reshape(1,-1), oc.reshape(1,-1))[0][0]
-                        if s2 > bsim and s2 > 0.75: bsim = s2; bs = os
-                    if bs != sub: r[oi] = bs
+                if sv >= thr:
+                    continue
+                # Buscar subtema alternativo más cercano
+                bs, bsim = sub, sv
+                emb = ae[oi]
+                for os_, oc in centroids.items():
+                    if os_ == sub: continue
+                    s2 = cosine_similarity(
+                        np.array(emb).reshape(1,-1), oc.reshape(1,-1)
+                    )[0][0]
+                    if s2 > bsim and s2 > 0.75:
+                        bsim = s2; bs = os_
+
+                if bs != sub:
+                    r[oi] = bs
+                elif sv < UMBRAL_MIN_PERTENENCIA_SUBTEMA:
+                    r[oi] = "_RECLASIFICAR"
         return r
+
 
 # ======================================
 # TEMAS
@@ -1283,18 +1444,34 @@ def _generar_nombre_tema_llm(subtemas_grupo, textos_muestra, titulos_muestra):
             if len(w) > 3: palabras.append(w)
     kw = " · ".join(w for w, _ in Counter(palabras).most_common(10))
     tit_muestra = "\n".join(f"  · {t[:100]}" for t in list(dict.fromkeys(titulos_muestra))[:8])
-    prompt = (f"Crea UNA categoría temática GENERAL (2-4 palabras) que agrupe estos subtemas:\n\n{subs_list}\n\nTítulos:\n{tit_muestra}\n\nKeywords: {kw}\n\n"
-        "REGLAS: más general que subtemas, NO repetir subtemas, 2-4 palabras, sin marcas/ciudades, tildes y ñ correctas, terminar en sustantivo/adjetivo.\n"
-        'JSON: {"tema":"..."}')
+    prompt = (
+        "Eres editor de un medio. Crea UNA categoría temática GENERAL "
+        "(2-4 palabras) que agrupe estos subtemas:\n\n"
+        f"{subs_list}\n\nTítulos:\n{tit_muestra}\n\nKeywords: {kw}\n\n"
+        "REGLAS: más general que los subtemas, NO repetir ningún subtema, "
+        "2-4 palabras, sin marcas/ciudades, tildes y ñ correctas, "
+        "terminar en sustantivo/adjetivo. "
+        "Piensa en secciones de un periódico: Economía, Política, Tecnología, "
+        "Infraestructura, Medio Ambiente, etc.\n"
+        'JSON: {"tema":"..."}'
+    )
     try:
-        resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION,
-            messages=[{"role":"user","content":prompt}], max_tokens=60, temperature=0.05, response_format={"type":"json_object"})
+        resp = call_with_retries(
+            openai.ChatCompletion.create,
+            model=OPENAI_MODEL_CLASIFICACION,
+            messages=[{"role":"user","content":prompt}],
+            max_tokens=60, temperature=0.05,
+            response_format={"type":"json_object"}
+        )
         u = resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
         if u:
-            st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
+            st.session_state['tokens_input']  += (u.get('prompt_tokens')     if isinstance(u,dict) else getattr(u,'prompt_tokens',0))     or 0
             st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
-        return limpiar_tema(json.loads(resp.choices[0].message.content).get("tema","").strip().replace('"','').replace('.',''))
-    except: return None
+        return limpiar_tema(
+            json.loads(resp.choices[0].message.content).get("tema","").strip().replace('"','').replace('.','')
+        )
+    except:
+        return None
 
 def _tema_es_igual_a_subtema(tema, subtemas_grupo):
     tn = string_norm_label(tema)
@@ -1307,54 +1484,97 @@ def _tema_es_igual_a_subtema(tema, subtemas_grupo):
 
 def _regenerar_tema_diferente(subtemas_grupo, titulos_muestra, intento=0):
     subs_list = ", ".join(subtemas_grupo[:8])
-    prompt = (f"Subtemas: {subs_list}\n\nGenera UNA categoría GENERAL (2-3 palabras), diferente a los subtemas. "
-        "Piensa en sección de periódico. Tildes y ñ correctas, terminar en sustantivo/adjetivo.\n"
-        'JSON: {"tema":"..."}')
+    prompt = (
+        f"Subtemas: {subs_list}\n\n"
+        "Genera UNA categoría GENERAL (2-3 palabras), diferente a los subtemas. "
+        "Piensa en sección de periódico (Economía, Política, Tecnología, "
+        "Infraestructura, Cultura, Deportes…). "
+        "Tildes y ñ correctas, terminar en sustantivo/adjetivo.\n"
+        'JSON: {"tema":"..."}'
+    )
     try:
-        resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION,
-            messages=[{"role":"user","content":prompt}], max_tokens=50, temperature=0.2+intento*0.1, response_format={"type":"json_object"})
+        resp = call_with_retries(
+            openai.ChatCompletion.create,
+            model=OPENAI_MODEL_CLASIFICACION,
+            messages=[{"role":"user","content":prompt}],
+            max_tokens=50, temperature=0.2+intento*0.1,
+            response_format={"type":"json_object"}
+        )
         u = resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
         if u:
-            st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u,dict) else getattr(u,'prompt_tokens',0)) or 0
+            st.session_state['tokens_input']  += (u.get('prompt_tokens')     if isinstance(u,dict) else getattr(u,'prompt_tokens',0))     or 0
             st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
-        return limpiar_tema(json.loads(resp.choices[0].message.content).get("tema","").strip().replace('"','').replace('.',''))
-    except: return None
+        return limpiar_tema(
+            json.loads(resp.choices[0].message.content).get("tema","").strip().replace('"','').replace('.','')
+        )
+    except:
+        return None
 
 def consolidar_temas(subtemas, textos, pbar):
     pbar.progress(0.05, "Preparando temas...")
-    df = pd.DataFrame({'subtema': subtemas, 'texto': textos}); us = list(df['subtema'].unique())
-    if len(us) <= 1: pbar.progress(1.0, "Un tema"); return [capitalizar_etiqueta(s) for s in subtemas]
+    df = pd.DataFrame({'subtema': subtemas, 'texto': textos})
+    us = list(df['subtema'].unique())
+    if len(us) <= 1:
+        pbar.progress(1.0, "Un tema")
+        return [capitalizar_etiqueta(s) for s in subtemas]
+
     pbar.progress(0.10, "Representaciones...")
     textos_por_subtema = defaultdict(list)
     for i, sub in enumerate(subtemas): textos_por_subtema[sub].append(textos[i])
     repr_enriquecidas = [_construir_representacion_grupo(sub, textos_por_subtema[sub]) for sub in us]
+
     pbar.progress(0.20, "Embeddings contenido...")
-    emb_repr = get_embeddings_batch(repr_enriquecidas); emb_labels = get_embeddings_batch(us)
-    ae = get_embeddings_batch(textos); centroids_contenido = {}
+    emb_repr   = get_embeddings_batch(repr_enriquecidas)
+    emb_labels = get_embeddings_batch(us)
+    ae = get_embeddings_batch(textos)
+
+    centroids_contenido = {}
     for sub in us:
         idxs = df.index[df['subtema'] == sub].tolist()[:50]
         vecs = [ae[i] for i in idxs if ae[i] is not None]
         if vecs: centroids_contenido[sub] = np.mean(vecs, axis=0)
+
     pbar.progress(0.35, "Similitudes...")
     vs = [s for s in us if s in centroids_contenido]
-    if len(vs) < 2: pbar.progress(1.0, "Sin agrupación"); return [capitalizar_etiqueta(s) for s in subtemas]
-    idx_map = {s: i for i, s in enumerate(us)}
-    M_content = np.array([centroids_contenido[s] for s in vs]); sim_content = cosine_similarity(M_content)
-    has_repr = all(emb_repr[idx_map[s]] is not None for s in vs)
-    has_label = all(emb_labels[idx_map[s]] is not None for s in vs)
+    if len(vs) < 2:
+        pbar.progress(1.0, "Sin agrupación")
+        return [capitalizar_etiqueta(s) for s in subtemas]
+
+    idx_map    = {s: i for i, s in enumerate(us)}
+    M_content  = np.array([centroids_contenido[s] for s in vs])
+    sim_content = cosine_similarity(M_content)
+    has_repr   = all(emb_repr[idx_map[s]]  is not None for s in vs)
+    has_label  = all(emb_labels[idx_map[s]] is not None for s in vs)
+
     if has_repr and has_label:
-        sim_combined = 0.50*sim_content + 0.35*cosine_similarity(np.array([emb_repr[idx_map[s]] for s in vs])) + 0.15*cosine_similarity(np.array([emb_labels[idx_map[s]] for s in vs]))
+        sim_combined = (
+            0.50 * sim_content
+            + 0.35 * cosine_similarity(np.array([emb_repr[idx_map[s]]  for s in vs]))
+            + 0.15 * cosine_similarity(np.array([emb_labels[idx_map[s]] for s in vs]))
+        )
     elif has_repr:
-        sim_combined = 0.60*sim_content + 0.40*cosine_similarity(np.array([emb_repr[idx_map[s]] for s in vs]))
-    else: sim_combined = sim_content
+        sim_combined = (
+            0.60 * sim_content
+            + 0.40 * cosine_similarity(np.array([emb_repr[idx_map[s]] for s in vs]))
+        )
+    else:
+        sim_combined = sim_content
+
     pbar.progress(0.45, "Clustering temas...")
     dist_matrix = np.clip(1-sim_combined, 0, 2); np.fill_diagonal(dist_matrix, 0)
-    cl = AgglomerativeClustering(n_clusters=None, distance_threshold=1-UMBRAL_TEMA, metric='precomputed', linkage='average').fit(dist_matrix)
+    cl = AgglomerativeClustering(
+        n_clusters=None, distance_threshold=1-UMBRAL_TEMA,
+        metric='precomputed', linkage='average'
+    ).fit(dist_matrix)
     if len(set(cl.labels_)) > NUM_TEMAS_MAX:
-        cl = AgglomerativeClustering(n_clusters=NUM_TEMAS_MAX, metric='precomputed', linkage='average').fit(dist_matrix)
+        cl = AgglomerativeClustering(
+            n_clusters=NUM_TEMAS_MAX, metric='precomputed', linkage='average'
+        ).fit(dist_matrix)
+
     clusters = defaultdict(list)
     for i, lbl in enumerate(cl.labels_): clusters[lbl].append(vs[i])
     uc = [s for s in us if s not in vs]; mt = {}; tc = len(clusters)
+
     pbar.progress(0.50, f"Nombres {tc} temas...")
     for k, (cid, subtemas_cluster) in enumerate(clusters.items()):
         pbar.progress(0.50+0.35*(k/max(tc,1)), f"Tema {k+1}/{tc}...")
@@ -1384,21 +1604,63 @@ def consolidar_temas(subtemas, textos, pbar):
                 for sub in subtemas_cluster:
                     for w in string_norm_label(sub).split():
                         if len(w) > 3: all_words.append(w)
-                nombre = capitalizar_etiqueta(" ".join(w for w, _ in Counter(all_words).most_common(2))) if all_words else subtemas_cluster[0]
+                nombre = (capitalizar_etiqueta(" ".join(w for w, _ in Counter(all_words).most_common(2)))
+                          if all_words else subtemas_cluster[0])
         if not _frase_esta_completa(nombre):
             nombre = _recortar_frase_completa(nombre, max_palabras=4)
             if not _frase_esta_completa(nombre):
-                freq = Counter(subtemas); nombre = _recortar_frase_completa(max(subtemas_cluster, key=lambda s: freq.get(s,0)), max_palabras=4)
+                freq = Counter(subtemas)
+                nombre = _recortar_frase_completa(
+                    max(subtemas_cluster, key=lambda s: freq.get(s,0)), max_palabras=4
+                )
         nombre = capitalizar_etiqueta(nombre)
         for sub in subtemas_cluster: mt[sub] = nombre
     for sub in uc: mt[sub] = capitalizar_etiqueta(sub)
-    tf = [mt.get(sub, sub) for sub in subtemas]
-    pbar.progress(0.88, "Dedup temas..."); tf = dedup_labels(tf, UMBRAL_DEDUP_LABEL)
-    pbar.progress(0.92, "Validando..."); tf = _post_validar_tema_vs_subtema(tf, subtemas)
+
+    # ── Validar pertenencia mínima al tema ───────────────────────────────────
+    pbar.progress(0.87, "Validando pertenencia mínima a temas...")
+    tf_inicial = [mt.get(sub, sub) for sub in subtemas]
+
+    tema_agrupacion: Dict[str, list] = defaultdict(list)
+    for i, tema in enumerate(tf_inicial):
+        if ae[i] is not None: tema_agrupacion[tema].append(ae[i])
+    tema_centroids: Dict[str, np.ndarray] = {
+        t: np.mean(vecs, axis=0) for t, vecs in tema_agrupacion.items() if vecs
+    }
+
+    tf_validado: List[str] = []
+    n_forzadas = 0
+    for i, (sub, tema_asignado) in enumerate(zip(subtemas, tf_inicial)):
+        emb = ae[i]
+        if emb is not None and tema_asignado in tema_centroids:
+            sim = cosine_similarity(
+                np.array(emb).reshape(1,-1),
+                tema_centroids[tema_asignado].reshape(1,-1)
+            )[0][0]
+            if sim < UMBRAL_MIN_PERTENENCIA_TEMA:
+                tf_validado.append(
+                    capitalizar_etiqueta(_recortar_frase_completa(sub, max_palabras=4))
+                )
+                n_forzadas += 1
+                continue
+        tf_validado.append(capitalizar_etiqueta(tema_asignado))
+
+    if n_forzadas:
+        st.caption(f"ℹ️ {n_forzadas} noticias con baja pertenencia al tema agrupado → tema propio asignado.")
+    # ─────────────────────────────────────────────────────────────────────────
+
+    pbar.progress(0.88, "Dedup temas...")
+    tf_validado = dedup_labels(tf_validado, UMBRAL_DEDUP_LABEL)
+    pbar.progress(0.92, "Validando tema ≠ subtema...")
+    tf_validado = _post_validar_tema_vs_subtema(tf_validado, subtemas)
     pbar.progress(0.95, "Completitud...")
-    tf = [capitalizar_etiqueta(_recortar_frase_completa(t) if not _frase_esta_completa(t) else t) for t in tf]
-    st.info(f"Temas: **{len(set(tf))}** (de {len(set(subtemas))} subtemas) · Máx: {NUM_TEMAS_MAX}")
-    pbar.progress(1.0, "Temas listos"); return tf
+    tf_validado = [
+        capitalizar_etiqueta(_recortar_frase_completa(t) if not _frase_esta_completa(t) else t)
+        for t in tf_validado
+    ]
+    st.info(f"Temas: **{len(set(tf_validado))}** (de {len(set(subtemas))} subtemas) · Máx: {NUM_TEMAS_MAX}")
+    pbar.progress(1.0, "Temas listos")
+    return tf_validado
 
 def _post_validar_tema_vs_subtema(temas, subtemas):
     tema_a_subtemas = defaultdict(set)
@@ -1406,7 +1668,8 @@ def _post_validar_tema_vs_subtema(temas, subtemas):
     reemplazos = {}
     for tema, subs in tema_a_subtemas.items():
         if len(subs) == 1:
-            sub_unico = list(subs)[0]; tn = string_norm_label(tema); sn = string_norm_label(sub_unico)
+            sub_unico = list(subs)[0]
+            tn = string_norm_label(tema); sn = string_norm_label(sub_unico)
             if tn and sn and SequenceMatcher(None, tn, sn).ratio() >= 0.80:
                 nuevo = _regenerar_tema_diferente([sub_unico], [])
                 if nuevo and not _tema_es_igual_a_subtema(nuevo, [sub_unico]) and _frase_esta_completa(nuevo):
@@ -1419,6 +1682,7 @@ def analizar_temas_con_pkl(textos, pkl_file):
         return [capitalizar_etiqueta(str(p)) for p in pipeline.predict(textos)]
     except Exception as e: st.error(f"Error pkl: {e}"); return None
 
+
 # ======================================
 # Duplicados y Excel
 # ======================================
@@ -1426,7 +1690,7 @@ def detectar_duplicados_avanzado(rows, km):
     processed = deepcopy(rows); seen_url, seen_bcast = {}, {}; tb = defaultdict(list)
     for i, row in enumerate(processed):
         if row.get("is_duplicate"): continue
-        tipo = normalizar_tipo_medio(str(row.get(km.get("tipodemedio",""))))
+        tipo   = normalizar_tipo_medio(str(row.get(km.get("tipodemedio",""))))
         mencion = norm_key(row.get(km.get("menciones",""))); medio = norm_key(row.get(km.get("medio","")))
         if tipo == "Internet":
             li = row.get(km.get("link_nota",{})) or {}; url = li.get("url") if isinstance(li,dict) else None
@@ -1447,7 +1711,7 @@ def detectar_duplicados_avanzado(rows, km):
             for j in range(i+1, len(idxs)):
                 a, b = idxs[i], idxs[j]
                 if processed[a].get("is_duplicate") or processed[b].get("is_duplicate"): continue
-                ta = normalize_title_for_comparison(processed[a].get(km.get("titulo","")))
+                ta  = normalize_title_for_comparison(processed[a].get(km.get("titulo","")))
                 tb_ = normalize_title_for_comparison(processed[b].get(km.get("titulo","")))
                 if ta and tb_ and SequenceMatcher(None, ta, tb_).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
                     if len(ta) < len(tb_): processed[a]["is_duplicate"] = True; processed[a]["idduplicada"] = processed[b].get(km.get("idnoticia",""),"")
@@ -1477,33 +1741,15 @@ def run_dossier_logic(sheet):
     return processed, km
 
 def fix_links_by_media_type(row, km):
-    tkey = km.get("tipodemedio")
-    ln   = km.get("link_nota")
-    ls   = km.get("link_streaming")
-    if not (tkey and ln and ls):
-        return
-
-    tipo = row.get(tkey, "")
-    rl   = row.get(ln)  or {"value": "", "url": None}
-    rs   = row.get(ls)  or {"value": "", "url": None}
-
+    tkey = km.get("tipodemedio"); ln = km.get("link_nota"); ls = km.get("link_streaming")
+    if not(tkey and ln and ls): return
+    tipo = row.get(tkey, ""); rl = row.get(ln) or {"value":"","url":None}; rs = row.get(ls) or {"value":"","url":None}
     hurl = lambda x: isinstance(x, dict) and bool(x.get("url"))
-
-    if tipo in ("Radio", "Televisión"):
-        # Si el link llegó en la columna de streaming en lugar de nota, lo movemos
-        if not hurl(rl) and hurl(rs):
-            row[ln] = rs
-        # Streaming no aplica para Radio/TV: siempre se limpia
-        row[ls] = {"value": "", "url": None}
-
-    elif tipo == "Internet":
-        # Internet: link_nota ← streaming, link_streaming ← nota (intercambio original)
-        row[ln], row[ls] = rs, rl
-
-    elif tipo in ("Prensa", "Revista"):
-        if not hurl(rl) and hurl(rs):
-            row[ln] = rs
-        row[ls] = {"value": "", "url": None}
+    if tipo in ("Radio","Televisión"): row[ls] = {"value":"","url":None}
+    elif tipo == "Internet": row[ln], row[ls] = rs, rl
+    elif tipo in ("Prensa","Revista"):
+        if not hurl(rl) and hurl(rs): row[ln] = rs
+        row[ls] = {"value":"","url":None}
 
 def generate_output_excel(rows, km):
     wb = Workbook(); ws = wb.active; ws.title = "Resultado"
@@ -1532,6 +1778,7 @@ def generate_output_excel(rows, km):
         for ci, url in links.items():
             cell = ws.cell(row=ws.max_row, column=ci); cell.hyperlink = url; cell.style = "HL"
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
 
 # ======================================
 # Proceso principal
@@ -1593,10 +1840,16 @@ async def run_full_process_async(df_file, reg_file, int_file, bn, ba, tpkl, epkl
     co = (st.session_state['tokens_output']/1e6)*PRICE_OUTPUT_1M
     ce = (st.session_state['tokens_embedding']/1e6)*PRICE_EMBEDDING_1M
     with st.status("Paso 5 · Informe", expanded=True) as s:
-        st.session_state["output_data"] = generate_output_excel(rows, km)
+        st.session_state["output_data"]     = generate_output_excel(rows, km)
         st.session_state["output_filename"] = f"Informe_IA_{bn.replace(' ','_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
         st.session_state["processing_complete"] = True
-        st.session_state.update({"brand_name":bn,"brand_aliases":ba,"total_rows":len(rows),"unique_rows":len(ta),"duplicates":len(rows)-len(ta),"process_duration":f"{time.time()-t0:.0f}s","process_cost":f"${ci+co+ce:.4f} USD","cache_stats":get_embedding_cache().stats()})
+        st.session_state.update({
+            "brand_name":bn,"brand_aliases":ba,
+            "total_rows":len(rows),"unique_rows":len(ta),"duplicates":len(rows)-len(ta),
+            "process_duration":f"{time.time()-t0:.0f}s",
+            "process_cost":f"${ci+co+ce:.4f} USD",
+            "cache_stats":get_embedding_cache().stats()
+        })
         s.update(label=f"✓ Completado · {get_embedding_cache().stats()}", state="complete")
 
 async def run_quick_async(df, tc, sc, bn, al):
@@ -1665,6 +1918,7 @@ def render_quick_tab():
                 if k in st.session_state: del st.session_state[k]
             st.rerun()
 
+
 # ======================================
 # Main
 # ======================================
@@ -1677,7 +1931,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v16.3 · compact viewport</div>
+            <div class="app-header-version">v17.1 · subtemas editoriales</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -1687,7 +1941,6 @@ def main():
     with tab1:
         if not st.session_state.get("processing_complete", False):
             with st.form("main_form"):
-                # — Archivos —
                 st.markdown('<div class="sec-label">Archivos de entrada</div>', unsafe_allow_html=True)
                 st.markdown("""
                 <div class="upload-zone">
@@ -1696,15 +1949,14 @@ def main():
                     <div class="upload-zone-card"><div class="upload-zone-icon uz-internet">🌐</div><div class="upload-zone-text"><div class="upload-zone-title">Internet</div><div class="upload-zone-desc">Medios digitales</div></div></div>
                 </div>""", unsafe_allow_html=True)
                 c1, c2, c3 = st.columns(3)
-                f1 = c1.file_uploader("Dossier", type=["xlsx"], label_visibility="collapsed", key="f1")
-                f2 = c2.file_uploader("Región", type=["xlsx"], label_visibility="collapsed", key="f2")
-                f3 = c3.file_uploader("Internet", type=["xlsx"], label_visibility="collapsed", key="f3")
+                f1 = c1.file_uploader("Dossier",   type=["xlsx"], label_visibility="collapsed", key="f1")
+                f2 = c2.file_uploader("Región",    type=["xlsx"], label_visibility="collapsed", key="f2")
+                f3 = c3.file_uploader("Internet",  type=["xlsx"], label_visibility="collapsed", key="f3")
 
-                # — Marca + Modo en misma fila —
                 st.markdown('<div class="sec-label">Configuración</div>', unsafe_allow_html=True)
                 cl, cr = st.columns([3, 2])
                 with cl:
-                    bn = st.text_input("Marca principal", placeholder="Ej: Bancolombia", key="bn")
+                    bn  = st.text_input("Marca principal", placeholder="Ej: Bancolombia", key="bn")
                     bat = st.text_input("Alias (separados por ;)", placeholder="Ej: Grupo Bancolombia;Ban", key="ba")
                 with cr:
                     mode = st.radio("Modo", ["API de OpenAI", "Híbrido (PKL + API)", "Solo Modelos PKL"], index=0, key="mode")
@@ -1713,19 +1965,30 @@ def main():
                 if "PKL" in mode:
                     p1, p2 = st.columns(2)
                     tpkl = p1.file_uploader("Sentimiento .pkl", type=["pkl"])
-                    epkl = p2.file_uploader("Temas .pkl", type=["pkl"])
+                    epkl = p2.file_uploader("Temas .pkl",       type=["pkl"])
 
-                st.markdown(f'<div class="cluster-info"><b>Parámetros</b> · Sub={UMBRAL_SUBTEMA} · Tema={UMBRAL_TEMA} · Máx={NUM_TEMAS_MAX} · FusInter={UMBRAL_FUSION_INTERGRUPO} · FusSem={UMBRAL_FUSION_SUBTEMAS} · Dedup={UMBRAL_DEDUP_LABEL}</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="cluster-info">'
+                    f'<b>Parámetros</b> · Sub={UMBRAL_SUBTEMA} · Tema={UMBRAL_TEMA} · Máx={NUM_TEMAS_MAX} '
+                    f'· FusInter={UMBRAL_FUSION_INTERGRUPO} · FusSem={UMBRAL_FUSION_SUBTEMAS} '
+                    f'· Dedup={UMBRAL_DEDUP_LABEL} · '
+                    f'<b>MinSub={UMBRAL_MIN_PERTENENCIA_SUBTEMA}</b> · '
+                    f'<b>MinTema={UMBRAL_MIN_PERTENENCIA_TEMA}</b> · '
+                    f'<b>MaxGrupo={MAX_GRUPO_ETIQUETA}</b>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
 
                 if st.form_submit_button("▶ Iniciar análisis", use_container_width=True, type="primary"):
                     if not all([f1, f2, f3, bn.strip()]): st.error("Completa todos los campos.")
                     else:
                         al = [a.strip() for a in bat.split(";") if a.strip()]
-                        asyncio.run(run_full_process_async(f1, f2, f3, bn, al, tpkl, epkl, mode)); st.rerun()
+                        asyncio.run(run_full_process_async(f1, f2, f3, bn, al, tpkl, epkl, mode))
+                        st.rerun()
         else:
             total = st.session_state.total_rows; uniq = st.session_state.unique_rows
-            dups = st.session_state.duplicates; dur = st.session_state.process_duration
-            cost = st.session_state.get("process_cost", "$0.00")
+            dups  = st.session_state.duplicates; dur  = st.session_state.process_duration
+            cost  = st.session_state.get("process_cost","$0.00")
             st.markdown('<div class="success-banner"><div class="success-icon">✓</div><div><div class="success-title">Análisis completado</div><div class="success-sub">Informe listo para descargar</div></div></div>', unsafe_allow_html=True)
             st.markdown(f"""
             <div class="metrics-grid">
@@ -1737,11 +2000,15 @@ def main():
             </div>""", unsafe_allow_html=True)
             if 'cache_stats' in st.session_state: st.caption(f"📊 {st.session_state['cache_stats']}")
             c1, c2 = st.columns(2)
-            c1.download_button("⬇ Descargar informe", data=st.session_state.output_data, file_name=st.session_state.output_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
+            c1.download_button("⬇ Descargar informe", data=st.session_state.output_data,
+                file_name=st.session_state.output_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True, type="primary")
             if c2.button("Nuevo análisis", use_container_width=True):
-                pwd = st.session_state.get("password_correct"); st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
+                pwd = st.session_state.get("password_correct")
+                st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
 
     with tab2: render_quick_tab()
-    st.markdown('<div class="footer">v16.3 · Análisis de Noticias con IA · Johnathan Cortés ©</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">v17.1 · Análisis de Noticias con IA · Johnathan Cortés ©</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
