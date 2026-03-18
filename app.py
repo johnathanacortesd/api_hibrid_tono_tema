@@ -1317,38 +1317,89 @@ def _construir_representacion_grupo(subtema, textos_grupo, max_textos=30):
     kw_str = " ".join(w for w, _ in Counter(palabras).most_common(12))
     return f"{subtema}. {subtema}. {kw_str}"[:500]
 
+def _validar_estructura_tema(tema: str) -> bool:
+    """
+    Valida que el tema generado sea una categoría editorial y no
+    un fragmento de titular, una lista de números o una frase
+    con verbos conjugados o adjetivos de estado.
+    """
+    if not tema or len(tema.split()) < 2:
+        return False
+    # No más de 4 palabras (temas son más generales que subtemas)
+    if len(tema.split()) > 4:
+        return False
+    # No puede empezar con número o "cinco/dos/tres..." (fragmento de titular)
+    if re.match(r'^[0-9]', tema):
+        return False
+    num_palabras = re.compile(
+        r'^(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|'
+        r'once|doce|veinte|cien|varios|cada)', re.IGNORECASE
+    )
+    if num_palabras.match(tema):
+        return False
+    # No puede empezar con verbo conjugado o palabra de titular
+    if _PATRON_TITULAR.match(tema):
+        return False
+    # No puede terminar en palabra de estado/adverbio
+    if _PATRON_ESTADO.search(tema):
+        return False
+    return True
+
+
 def _generar_nombre_tema_llm(subtemas_grupo, textos_muestra, titulos_muestra):
-    subs_list = "\n".join(f"  · {s}" for s in subtemas_grupo[:12])
-    palabras  = []
+    """
+    Genera el nombre de un tema a partir de sus subtemas y títulos.
+    Aplica las mismas protecciones editoriales que _generar_etiqueta:
+    prompt con ejemplos explícitos, validación de estructura y reintento
+    con _regenerar_tema_diferente si el resultado no es válido.
+    """
+    subs_list   = "\n".join(f"  · {s}" for s in subtemas_grupo[:8])
+    palabras    = []
     for t in titulos_muestra[:15]:
         for w in string_norm_label(str(t)).split():
             if len(w) > 3: palabras.append(w)
-    kw = " · ".join(w for w, _ in Counter(palabras).most_common(10))
-    tit_muestra = "\n".join(f"  · {t[:100]}" for t in list(dict.fromkeys(titulos_muestra))[:8])
+    kw = ", ".join(w for w, _ in Counter(palabras).most_common(6))
+    tit_muestra = "\n".join(f"  · {t[:100]}" for t in list(dict.fromkeys(titulos_muestra))[:5])
+
     prompt = (
-        "Eres editor de un medio. Crea UNA categoría temática GENERAL "
-        "(2-4 palabras) que agrupe estos subtemas:\n\n"
-        f"{subs_list}\n\nTítulos:\n{tit_muestra}\n\nKeywords: {kw}\n\n"
-        "REGLAS: más general que los subtemas, NO repetir ningún subtema, "
-        "2-4 palabras, sin marcas/ciudades, tildes y ñ correctas, "
-        "terminar en sustantivo/adjetivo. "
-        "Piensa en secciones de periódico: Economía, Política, Tecnología, "
-        "Infraestructura, Medio Ambiente, etc.\n"
+        "Eres editor jefe de un periódico. "
+        "Crea UNA sección editorial (2-4 palabras) que agrupe estos subtemas.\n\n"
+        "SUBTEMAS:\n" + subs_list +
+        "\n\nTÍTULOS DE REFERENCIA:\n" + tit_muestra +
+        f"\n\nKEYWORDS: {kw}\n\n"
+        "REGLAS ESTRICTAS:\n"
+        "  1. Piensa en secciones de periódico: 'Política', 'Economía', "
+        "'Tecnología', 'Seguridad', 'Justicia', 'Medio Ambiente'.\n"
+        "  2. Más GENERAL y ABSTRACTO que los subtemas — nunca repitas "
+        "un subtema ni copies fragmentos de titular.\n"
+        "  3. NUNCA incluyas números, cantidades ni nombres propios.\n"
+        "  4. 2-4 palabras. Sustantivo + adjetivo o sustantivo solo.\n"
+        "  5. Tildes y ñ correctas.\n\n"
+        "CORRECTO: 'Política', 'Gestión legislativa', 'Justicia penal', "
+        "'Regulación financiera'\n"
+        "INCORRECTO: 'Cinco congresistas con líos', 'Congresistas electos', "
+        "'Investigación disciplinaria congreso', 'Nuevo acuerdo'\n\n"
         'JSON: {"tema":"..."}'
     )
     try:
         resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION,
-            messages=[{"role":"user","content":prompt}], max_tokens=60, temperature=0.05,
+            messages=[{"role":"user","content":prompt}], max_tokens=40, temperature=0.05,
             response_format={"type":"json_object"})
         u = resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
         if u:
             st.session_state['tokens_input']  += (u.get('prompt_tokens')     if isinstance(u,dict) else getattr(u,'prompt_tokens',0))     or 0
             st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
-        return limpiar_tema(json.loads(resp.choices[0].message.content).get("tema","").strip().replace('"','').replace('.',''))
-    except: return None
+        raw    = json.loads(resp.choices[0].message.content).get("tema","").strip().replace('"','').replace('.','')
+        nombre = limpiar_tema(raw)
 
-def _tema_es_igual_a_subtema(tema, subtemas_grupo):
-    tn = string_norm_label(tema)
+        # Validar estructura — si falla, el reintento lo maneja el caller
+        if not _validar_estructura_tema(nombre):
+            return None
+        return nombre
+    except:
+        return None
+
+
     for sub in subtemas_grupo:
         sn = string_norm_label(sub)
         if not tn or not sn: continue
