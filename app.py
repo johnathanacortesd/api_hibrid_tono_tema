@@ -918,8 +918,13 @@ def _unificar_subtemas_llm(subtemas_a_unificar, textos_por_subtema, marca, alias
                     all_kw.append(w)
     kw_str = " · ".join(w for w, _ in Counter(all_kw).most_common(8))
     prompt = (
-        f"Estos subtemas son variaciones del MISMO tema. Genera UN subtema unificado (3-6 palabras):\n\n{subs_str}\n\nKeywords: {kw_str}\n\n"
-        "REGLAS: frase coherente, sin marcas/ciudades, tildes y ñ correctas, terminar en sustantivo/adjetivo.\n"
+        f"Estos subtemas son variaciones del MISMO tema. "
+        f"Genera UN subtema unificado (4-6 palabras) como frase nominal completa:\n\n"
+        f"{subs_str}\n\nKeywords: {kw_str}\n\n"
+        "REGLAS: frase coherente con preposición (de/del/para/sobre/en), "
+        "sin marcas ni ciudades, tildes y ñ correctas, terminar en sustantivo/adjetivo.\n"
+        "CORRECTO: 'Regulación de tarifas eléctricas', 'Apertura de nuevas sucursales'\n"
+        "INCORRECTO: 'Tarifas energía', 'Apertura sucursales', 'Actividad corporativa'\n"
         'JSON: {"subtema":"..."}'
     )
     try:
@@ -927,7 +932,7 @@ def _unificar_subtemas_llm(subtemas_a_unificar, textos_por_subtema, marca, alias
             openai.ChatCompletion.create,
             model=OPENAI_MODEL_CLASIFICACION,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=80,
+            max_tokens=60,
             temperature=0.05,
             response_format={"type": "json_object"}
         )
@@ -1323,37 +1328,66 @@ class ClasificadorSubtema:
         if ck in self._cache:
             return self._cache[ck]
 
-        tm = list(dict.fromkeys(t[:120] for t in titulos_grp if t))[:5]
-        rm = [str(r)[:150] for r in resumenes_grp[:2] if r and len(str(r)) > 20]
+        # Hasta 6 títulos únicos (más contexto = mejor frase nominal)
+        tm = list(dict.fromkeys(t[:130] for t in titulos_grp if t))[:6]
 
-        kw_list = self._extraer_keywords_titulos(titulos_grp, top_n=6)
-        kw = ", ".join(kw_list)
+        # Hasta 3 resúmenes: dan el contexto semántico que evita frases robóticas
+        rm = [str(r)[:200] for r in resumenes_grp[:3] if r and len(str(r)) > 20]
 
-        ctx_resumenes = ("\nRESÚMENES:\n" + "\n".join(f"  · {r}" for r in rm)) if rm else ""
+        # Keywords de títulos Y de resúmenes combinados
+        kw_list = self._extraer_keywords_titulos(titulos_grp, top_n=8)
+        # Añadir keywords de resumenes para enriquecer
+        palabras_res = []
+        for r in resumenes_grp[:5]:
+            for w in string_norm_label(str(r)).split():
+                if len(w) > 4:
+                    palabras_res.append(w)
+        kw_res = [w for w, _ in Counter(palabras_res).most_common(4)
+                  if w not in {unidecode(k.lower()) for k in kw_list}]
+        kw_todos = kw_list + kw_res
+        kw = ", ".join(kw_todos[:10])
 
-        if len(kw_list) >= 2:
-            ejemplo_dinamico = f"'{kw_list[0].title()} {kw_list[1].title()}' (si aplica)"
+        ctx_resumenes = (
+            "\nRESÚMENES (para contexto):\n"
+            + "\n".join(f"  · {r}" for r in rm)
+        ) if rm else ""
+
+        # Ejemplo dinámico más rico: si hay ≥3 kw construimos frase de muestra
+        if len(kw_list) >= 3:
+            ejemplo_dinamico = (
+                f"'{kw_list[0].title()} de {kw_list[1].title()}' o "
+                f"'{kw_list[0].title()} {kw_list[2].title()}'"
+            )
+        elif len(kw_list) >= 2:
+            ejemplo_dinamico = f"'{kw_list[0].title()} de {kw_list[1].title()}'"
         elif len(kw_list) == 1:
             ejemplo_dinamico = f"'{kw_list[0].title()} específico'"
         else:
-            ejemplo_dinamico = "'Congresistas con antecedentes'"
+            ejemplo_dinamico = "'Regulación de tarifas eléctricas'"
 
         prompt = (
-            "Eres editor de un medio. "
-            "Genera UN subtema periodístico CONCRETO (3-5 palabras) para este grupo de noticias.\n\n"
+            "Eres editor jefe de un periódico nacional. "
+            "Genera UN subtema periodístico (4-6 palabras) que sea una FRASE NOMINAL COMPLETA "
+            "y describa con precisión el asunto común de estas noticias.\n\n"
             "TÍTULOS:\n" + "\n".join(f"  · {t}" for t in tm)
             + ctx_resumenes
-            + f"\n\nPALABRAS CLAVE DEL GRUPO: {kw}\n\n"
-            "REGLAS:\n"
-            "  1. SÉ ESPECÍFICO: usa las palabras clave del grupo, no términos genéricos.\n"
-            f"     MALO: 'Actividad legislativa'  →  BUENO: {ejemplo_dinamico}\n"
-            "  2. Estructura: sustantivo + complemento nominal o adjetivo calificativo.\n"
-            "  3. Sin marcas, ciudades ni gentilicios. Tildes y ñ correctas.\n"
-            "  4. Si los títulos son heterogéneos, busca el denominador temático más preciso.\n\n"
-            "EJEMPLOS CORRECTOS: 'Congresistas con antecedentes', 'Tarifas de energía eléctrica', "
-            "'Infraestructura vial urbana', 'Regulación de criptomonedas'\n"
-            "EJEMPLOS INCORRECTOS: 'Corrupción congreso', 'Tema energético', "
-            "'Actividad legislativa', 'Anuncio nueva terminal'\n\n"
+            + f"\n\nPALABRAS CLAVE: {kw}\n\n"
+            "REGLAS ESTRICTAS:\n"
+            "  1. FRASE NOMINAL COMPLETA: sustantivo principal + complemento preposicional "
+            "     o adjetivo calificativo. NUNCA dos sustantivos sueltos pegados.\n"
+            f"     CORRECTO: {ejemplo_dinamico}\n"
+            "     INCORRECTO: 'Tarifas energía', 'Resultados financieros empresa', "
+            "'Actividad corporativa'\n"
+            "  2. USA preposiciones (de, del, para, sobre, en) para unir conceptos.\n"
+            "  3. SÉ ESPECÍFICO al tema real del grupo, no genérico.\n"
+            "  4. Sin nombres de marcas, ciudades ni gentilicios.\n"
+            "  5. Tildes y ñ correctas. Terminar en sustantivo o adjetivo.\n\n"
+            "EJEMPLOS CORRECTOS: 'Tarifas de energía eléctrica', "
+            "'Regulación de criptomonedas', 'Infraestructura vial urbana', "
+            "'Resultados del balance financiero', 'Apertura de nuevas sucursales', "
+            "'Investigación por corrupción legislativa'\n"
+            "EJEMPLOS INCORRECTOS: 'Tarifas energía', 'Resultados financieros', "
+            "'Actividad legislativa', 'Gestión corporativa', 'Anuncio nueva terminal'\n\n"
             'JSON: {"subtema":"..."}'
         )
 
@@ -1362,7 +1396,7 @@ class ClasificadorSubtema:
                 openai.ChatCompletion.create,
                 model=OPENAI_MODEL_CLASIFICACION,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=40,
+                max_tokens=60,  # aumentado: frases de 4-6 palabras con tildes necesitan espacio
                 temperature=0.0,
                 response_format={"type": "json_object"}
             )
@@ -1374,13 +1408,33 @@ class ClasificadorSubtema:
             raw = json.loads(resp.choices[0].message.content).get("subtema", "Varios")
             et = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
 
+            # Detectar patrón robótico: 2 sustantivos sin preposición
+            def _es_robotico(s):
+                palabras = s.split()
+                if len(palabras) == 2:
+                    # Dos palabras sin nexo = robótico
+                    return True
+                if len(palabras) >= 2:
+                    nexos = {"de", "del", "para", "sobre", "en", "con", "por",
+                             "ante", "hacia", "entre", "sin", "al", "las", "los",
+                             "una", "uno", "que", "como", "y", "o"}
+                    tiene_nexo = any(unidecode(p.lower()) in nexos for p in palabras[1:])
+                    if not tiene_nexo and len(palabras) <= 3:
+                        return True
+                return False
+
             genericas = {"gestión", "gestion", "actividades", "acciones", "noticias",
-                         "información", "informacion", "eventos", "varios", "sin tema"}
-            if string_norm_label(et) in {string_norm_label(g) for g in genericas} or len(et.split()) < 2:
-                et = self._refinar(tm, kw, rm)
+                         "información", "informacion", "eventos", "varios", "sin tema",
+                         "actividad corporativa", "gestion corporativa",
+                         "resultados financieros", "tarifas energia"}
+            es_gen = string_norm_label(et) in {string_norm_label(g) for g in genericas}
+            es_rob = _es_robotico(et)
+
+            if es_gen or es_rob or len(et.split()) < 3:
+                et = self._refinar(tm, kw, rm, forzar_preposicion=True)
 
             if not _validar_estructura_subtema(et):
-                et = self._refinar(tm, kw, rm)
+                et = self._refinar(tm, kw, rm, forzar_preposicion=True)
                 if not _validar_estructura_subtema(et):
                     et = self._fallback(titulos_grp)
 
@@ -1395,22 +1449,45 @@ class ClasificadorSubtema:
         self._cache[ck] = et
         return et
 
-    def _refinar(self, titulos, kw, resumenes=None):
-        ctx = f"\nContexto: {' | '.join(r[:80] for r in resumenes[:2])}" if resumenes else ""
+    def _refinar(self, titulos, kw, resumenes=None, forzar_preposicion=False):
+        ctx = (
+            "\nContexto de resúmenes: " + " | ".join(r[:100] for r in resumenes[:3])
+        ) if resumenes else ""
         kw_parts = [w.strip() for w in kw.split(",") if w.strip()]
-        if len(kw_parts) >= 2:
-            ejemplo_bueno = f"'{kw_parts[0].title()} {kw_parts[1].title()}'"
+
+        # Construir ejemplos dinámicos con preposición explícita
+        if len(kw_parts) >= 3:
+            ej_bueno = (
+                f"'{kw_parts[0].title()} de {kw_parts[1].title()}', "
+                f"'{kw_parts[0].title()} en {kw_parts[2].title()}'"
+            )
+        elif len(kw_parts) >= 2:
+            ej_bueno = f"'{kw_parts[0].title()} de {kw_parts[1].title()}'"
         elif len(kw_parts) == 1:
-            ejemplo_bueno = f"'{kw_parts[0].title()} específico'"
+            ej_bueno = f"'{kw_parts[0].title()} específico'"
         else:
-            ejemplo_bueno = "'Política laboral'"
+            ej_bueno = "'Regulación de tarifas eléctricas'"
+
+        # Construir ejemplos malos dinámicos con las mismas kw
+        if len(kw_parts) >= 2:
+            ej_malo = f"'{kw_parts[0].title()} {kw_parts[1].title()}' (sin preposición)"
+        else:
+            ej_malo = "'Actividad corporativa', 'Gestión financiera'"
+
+        instruccion_prep = (
+            "  OBLIGATORIO: usa una preposición (de, del, para, sobre, en, por) "
+            "entre los sustantivos. NUNCA dos sustantivos pegados sin nexo.\n"
+        ) if forzar_preposicion else ""
+
         prompt = (
-            "Eres editor de un medio. "
-            f"Títulos: {' | '.join(titulos[:4])}\nKeywords: {kw}{ctx}\n\n"
-            "Genera UN subtema CONCRETO (3-5 palabras) usando las keywords del grupo: "
-            "sustantivo + complemento específico. Tildes y ñ correctas.\n"
-            f"CORRECTO: {ejemplo_bueno}, 'Tarifas de energía eléctrica'\n"
-            "INCORRECTO: 'Actividad corporativa', 'Tema energético'\n"
+            "Eres editor jefe. Genera UN subtema periodístico (4-6 palabras) "
+            "como frase nominal completa con preposición.\n\n"
+            f"Títulos: {' | '.join(titulos[:5])}{ctx}\n"
+            f"Keywords: {kw}\n\n"
+            f"{instruccion_prep}"
+            f"CORRECTO: {ej_bueno}, 'Tarifas de energía eléctrica'\n"
+            f"INCORRECTO: {ej_malo}, 'Actividad corporativa'\n"
+            "Tildes y ñ correctas. Sin marcas ni ciudades.\n"
             'JSON: {"subtema":"..."}'
         )
         try:
@@ -1418,8 +1495,8 @@ class ClasificadorSubtema:
                 openai.ChatCompletion.create,
                 model=OPENAI_MODEL_CLASIFICACION,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=40,
-                temperature=0.15,
+                max_tokens=60,
+                temperature=0.2,
                 response_format={"type": "json_object"}
             )
             u = resp.get('usage', {}) if isinstance(resp, dict) else getattr(resp, 'usage', {})
@@ -2373,7 +2450,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.6 · fix _tema_es_igual_a_subtema</div>
+            <div class="app-header-version">v17.7 · subtemas con frases nominales completas</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -2473,7 +2550,7 @@ def main():
         render_quick_tab()
 
     st.markdown(
-        '<div class="footer">v17.6 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
+        '<div class="footer">v17.7 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
         unsafe_allow_html=True
     )
 
