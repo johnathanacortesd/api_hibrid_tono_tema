@@ -1039,10 +1039,16 @@ class ClasificadorSubtema:
         kw = ", ".join(kw_list)
 
         # ── Prompt concreto y específico ─────────────────────────────────────
-        # La clave del código externo: pedir CONCRECIÓN explícita con ejemplo
-        # de "malo genérico" vs "bueno específico" usando las propias keywords.
-        # Se reduce max_tokens a 40 para forzar respuestas cortas y directas.
         ctx_resumenes = ("\nRESÚMENES:\n" + "\n".join(f"  · {r}" for r in rm)) if rm else ""
+
+        # Ejemplo dinámico defensivo: solo se construye si hay ≥2 keywords
+        if len(kw_list) >= 2:
+            ejemplo_dinamico = f"'{kw_list[0].title()} {kw_list[1].title()}' (si aplica)"
+        elif len(kw_list) == 1:
+            ejemplo_dinamico = f"'{kw_list[0].title()} específico'"
+        else:
+            ejemplo_dinamico = "'Congresistas con antecedentes'"
+
         prompt = (
             "Eres editor de un medio. "
             "Genera UN subtema periodístico CONCRETO (3-5 palabras) para este grupo de noticias.\n\n"
@@ -1051,7 +1057,7 @@ class ClasificadorSubtema:
             + f"\n\nPALABRAS CLAVE DEL GRUPO: {kw}\n\n"
             "REGLAS:\n"
             "  1. SÉ ESPECÍFICO: usa las palabras clave del grupo, no términos genéricos.\n"
-            f"     MALO: 'Actividad legislativa'  →  BUENO: '{kw_list[0].title()} {kw_list[1].title()}' (si aplica)\n"
+            f"     MALO: 'Actividad legislativa'  →  BUENO: {ejemplo_dinamico}\n"
             "  2. Estructura: sustantivo + complemento nominal o adjetivo calificativo.\n"
             "  3. Sin marcas, ciudades ni gentilicios. Tildes y ñ correctas.\n"
             "  4. Si los títulos son heterogéneos, busca el denominador temático más preciso.\n\n"
@@ -1099,7 +1105,12 @@ class ClasificadorSubtema:
     def _refinar(self, titulos, kw, resumenes=None):
         ctx = f"\nContexto: {' | '.join(r[:80] for r in resumenes[:2])}" if resumenes else ""
         kw_parts = [w.strip() for w in kw.split(",") if w.strip()]
-        ejemplo_bueno = f"'{kw_parts[0].title()} {kw_parts[1].title()}'" if len(kw_parts) >= 2 else "'Política laboral'"
+        if len(kw_parts) >= 2:
+            ejemplo_bueno = f"'{kw_parts[0].title()} {kw_parts[1].title()}'"
+        elif len(kw_parts) == 1:
+            ejemplo_bueno = f"'{kw_parts[0].title()} específico'"
+        else:
+            ejemplo_bueno = "'Política laboral'"
         prompt = (
             "Eres editor de un medio. "
             f"Títulos: {' | '.join(titulos[:4])}\nKeywords: {kw}{ctx}\n\n"
