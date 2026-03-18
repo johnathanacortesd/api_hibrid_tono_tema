@@ -635,83 +635,41 @@ def limpiar_tema(tema):
 
 
 def limpiar_tema_geografico(tema, marca, aliases):
+    """
+    Limpia el tema eliminando SOLO:
+    - El nombre de la marca y sus aliases
+    - Frases genéricas de Colombia ("en Colombia", "de Colombia", "del país")
+
+    NO elimina ciudades, departamentos ni gentilicios — son contexto
+    geográfico legítimo dentro de un subtema periodístico.
+    El LLM ya recibe instrucción de no incluir ciudades en su prompt;
+    si las incluye es porque son parte relevante del subtema.
+    """
     if not tema:
         return "Sin tema"
 
-    # ── Patrón de verbos conjugados que invalidan la frase si quedan expuestos ──
-    # Estas palabras NO son "trailing incomplete" (porque una frase puede terminar
-    # en verbo correctamente), pero SÍ indican que la frase quedó rota cuando
-    # aparecen DESPUÉS de una preposición al eliminar una ciudad intermedia.
-    _VERBOS_CONJUGADOS = {
-        "presenta","presentan","anuncia","anuncian","lanza","lanzan",
-        "realiza","realizan","desarrolla","desarrollan","ejecuta","ejecutan",
-        "gestiona","gestionan","impulsa","impulsan","promueve","promueven",
-        "lidera","lideran","encabeza","encabezan","inaugura","inauguran",
-        "aprueba","aprueban","firma","firman","suscribe","suscriben",
-        "invierte","invierten","construye","construyen","instala","instalan",
-        "entrega","entregan","recibe","reciben","solicita","solicitan",
-        "visita","visitan","recorre","recorren","atiende","atienden",
-        "destaca","destacan","señala","señalan","indica","indican",
-        "expresa","expresan","afirma","afirman","asegura","aseguran",
-        "informa","informan","reporta","reportan","advierte","advierten",
-        "propone","proponen","pide","piden","exige","exigen","apoya","apoyan",
-    }
-
-    # 1. Normalizar para limpieza (sin acentos, minúsculas)
     tl = unidecode(tema.lower())
 
-    # 2. Eliminar nombres de marca y aliases
+    # 1. Eliminar solo la marca y aliases (nunca ciudades ni regiones)
     for n in [marca] + [a for a in aliases if a]:
         patron = r'\b' + re.escape(unidecode(n.strip().lower())) + r'\b'
         tl = re.sub(patron, '', tl)
 
-    # 3. Eliminar ciudades/departamentos (más largo primero para evitar fragmentos)
-    ciudades_ordenadas = sorted(CIUDADES_COLOMBIA, key=len, reverse=True)
-    for ciudad in ciudades_ordenadas:
-        patron = r'\b' + re.escape(unidecode(ciudad.lower())) + r'\b'
-        tl = re.sub(patron, '', tl)
-
-    # 4. Eliminar gentilicios
-    for gentilicio in GENTILICIOS_COLOMBIA:
-        patron = r'\b' + re.escape(unidecode(gentilicio.lower())) + r'\b'
-        tl = re.sub(patron, '', tl)
-
-    # 5. Eliminar frases geográficas de Colombia
+    # 2. Eliminar SOLO frases genéricas de Colombia que no aportan al subtema
     frases_eliminar = [
         "en colombia", "de colombia", "del pais", "en el pais",
-        "territorio nacional",
+        "territorio nacional", "a nivel nacional", "en todo el pais",
     ]
     for frase in frases_eliminar:
         tl = re.sub(r'\b' + re.escape(frase) + r'\b', '', tl)
 
-    # 6. Limpiar espacios múltiples
+    # 3. Limpiar espacios múltiples
     tl = re.sub(r'\s+', ' ', tl).strip()
 
-    # 7. Detectar si la frase quedó con un verbo conjugado expuesto:
-    #    Patrón: "... preposición verbo_conjugado ..." o termina en verbo conjugado
-    #    tras haber eliminado la ciudad que era el sujeto/objeto
-    palabras_resultado = tl.split()
-    frase_invalida = False
-    if palabras_resultado:
-        # Caso A: termina en verbo conjugado (el objeto fue la ciudad eliminada)
-        ultima = palabras_resultado[-1].rstrip(".,;:!?")
-        if ultima in _VERBOS_CONJUGADOS:
-            frase_invalida = True
-        # Caso B: "preposicion + verbo" en cualquier posición interna
-        for i in range(len(palabras_resultado) - 1):
-            w_curr = palabras_resultado[i].rstrip(".,;:!?")
-            w_next = palabras_resultado[i + 1].rstrip(".,;:!?")
-            if w_curr in {"de","del","en","a","al","para","por","con","sobre"} \
-               and w_next in _VERBOS_CONJUGADOS:
-                frase_invalida = True
-                break
-
-    if frase_invalida:
-        # La frase se rompió al quitar la ciudad — devolver "Sin tema"
-        # para que la capa superior (limpiar_tema / _generar_etiqueta) lo reintente
+    if not tl:
         return "Sin tema"
 
-    # 8. Reconstruir preservando capitalización original
+    # 4. Reconstruir preservando capitalización original
     tokens_orig = tema.split()
     tokens_norm = unidecode(tema.lower()).split()
     norm_disponibles = tl.split()
@@ -1409,15 +1367,10 @@ class ClasificadorSubtema:
         if ck in self._cache:
             return self._cache[ck]
 
-        # Hasta 6 títulos únicos (más contexto = mejor frase nominal)
         tm = list(dict.fromkeys(t[:130] for t in titulos_grp if t))[:6]
-
-        # Hasta 3 resúmenes: dan el contexto semántico que evita frases robóticas
         rm = [str(r)[:200] for r in resumenes_grp[:3] if r and len(str(r)) > 20]
 
-        # Keywords de títulos Y de resúmenes combinados
         kw_list = self._extraer_keywords_titulos(titulos_grp, top_n=8)
-        # Añadir keywords de resumenes para enriquecer
         palabras_res = []
         for r in resumenes_grp[:5]:
             for w in string_norm_label(str(r)).split():
@@ -1433,51 +1386,67 @@ class ClasificadorSubtema:
             + "\n".join(f"  · {r}" for r in rm)
         ) if rm else ""
 
-        # Ejemplo dinámico más rico: si hay ≥3 kw construimos frase de muestra
         if len(kw_list) >= 3:
             ejemplo_dinamico = (
                 f"'{kw_list[0].title()} de {kw_list[1].title()}' o "
-                f"'{kw_list[0].title()} {kw_list[2].title()}'"
+                f"'{kw_list[0].title()} del {kw_list[2].title()}'"
             )
         elif len(kw_list) >= 2:
             ejemplo_dinamico = f"'{kw_list[0].title()} de {kw_list[1].title()}'"
         elif len(kw_list) == 1:
-            ejemplo_dinamico = f"'{kw_list[0].title()} específico'"
+            ejemplo_dinamico = f"'{kw_list[0].title()} en la región'"
         else:
-            ejemplo_dinamico = "'Regulación de tarifas eléctricas'"
+            ejemplo_dinamico = "'Proyecto de terminal de transportes'"
 
         prompt = (
-            "Eres editor jefe de un periódico nacional. "
-            "Genera UN subtema periodístico (4-6 palabras) que sea una FRASE NOMINAL COMPLETA "
-            "y describa con precisión el asunto común de estas noticias.\n\n"
+            "Eres editor jefe de un periódico. "
+            "Genera UN subtema periodístico (4-7 palabras) que sea una FRASE NOMINAL "
+            "— sin sujeto ni verbo conjugado — para este grupo de noticias.\n\n"
             "TÍTULOS:\n" + "\n".join(f"  · {t}" for t in tm)
             + ctx_resumenes
             + f"\n\nPALABRAS CLAVE: {kw}\n\n"
-            "REGLAS ESTRICTAS:\n"
-            "  1. FRASE NOMINAL COMPLETA: sustantivo principal + complemento preposicional "
-            "     o adjetivo calificativo. NUNCA dos sustantivos sueltos pegados.\n"
+            "REGLAS OBLIGATORIAS:\n"
+            "  1. FRASE NOMINAL PURA: empieza con sustantivo, usa preposición para unir conceptos.\n"
+            "     NUNCA empieces con cargo/persona ('Alcalde', 'Gobernador', 'Ministro').\n"
+            "     NUNCA incluyas verbo conjugado ('presenta', 'anuncia', 'lanza', 'inaugura').\n"
             f"     CORRECTO: {ejemplo_dinamico}\n"
-            "     INCORRECTO: 'Tarifas energía', 'Resultados financieros empresa', "
-            "'Actividad corporativa'\n"
-            "  2. USA preposiciones (de, del, para, sobre, en) para unir conceptos.\n"
-            "  3. SÉ ESPECÍFICO al tema real del grupo, no genérico.\n"
-            "  4. Sin nombres de marcas, ciudades ni gentilicios.\n"
-            "  5. Tildes y ñ correctas. Terminar en sustantivo o adjetivo.\n\n"
-            "EJEMPLOS CORRECTOS: 'Tarifas de energía eléctrica', "
-            "'Regulación de criptomonedas', 'Infraestructura vial urbana', "
-            "'Resultados del balance financiero', 'Apertura de nuevas sucursales', "
-            "'Investigación por corrupción legislativa'\n"
-            "EJEMPLOS INCORRECTOS: 'Tarifas energía', 'Resultados financieros', "
-            "'Actividad legislativa', 'Gestión corporativa', 'Anuncio nueva terminal'\n\n"
+            "     INCORRECTO: 'Alcalde presenta proyecto terminal', "
+            "'Gobernador anuncia inversión', 'Alcaldía lanza plan'\n"
+            "  2. USA preposiciones (de, del, para, sobre, en, por) para conectar conceptos.\n"
+            "  3. SÉ ESPECÍFICO: describe el asunto real, no el actor.\n"
+            "  4. Ciudades y regiones SÍ pueden aparecer si son relevantes al tema.\n"
+            "  5. Sin nombre de marcas privadas. Tildes y ñ correctas.\n\n"
+            "EJEMPLOS CORRECTOS: 'Proyecto de terminal de transportes', "
+            "'Operación del Canal del Dique', 'Plan de infraestructura vial', "
+            "'Regulación de tarifas eléctricas', 'Inversión en salud pública'\n"
+            "EJEMPLOS INCORRECTOS: 'Alcalde presenta proyecto', 'Gobernador lanza plan', "
+            "'Tarifas energía', 'Gestión corporativa', 'Actividad legislativa'\n\n"
             'JSON: {"subtema":"..."}'
         )
+
+        # Detector de verbo conjugado en la etiqueta generada
+        _VERBOS_FRASES = re.compile(
+            r'\b(presenta|presentan|anuncia|anuncian|lanza|lanzan|inaugura|inauguran|'
+            r'realiza|realizan|desarrolla|desarrollan|ejecuta|ejecutan|gestiona|gestionan|'
+            r'impulsa|impulsan|promueve|promueven|lidera|lideran|encabeza|encabezan|'
+            r'aprueba|aprueban|firma|firman|suscribe|suscriben|invierte|invierten|'
+            r'construye|construyen|instala|instalan|entrega|entregan|recibe|reciben|'
+            r'solicita|solicitan|visita|visitan|atiende|atienden|destaca|destacan|'
+            r'señala|señalan|indica|indican|expresa|expresan|afirma|afirman|'
+            r'propone|proponen|pide|piden|exige|exigen|apoya|apoyan|'
+            r'informa|informan|reporta|reportan|advierte|advierten)\b',
+            re.IGNORECASE
+        )
+
+        def _tiene_verbo_conjugado(s):
+            return bool(_VERBOS_FRASES.search(s))
 
         try:
             resp = call_with_retries(
                 openai.ChatCompletion.create,
                 model=OPENAI_MODEL_CLASIFICACION,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=60,  # aumentado: frases de 4-6 palabras con tildes necesitan espacio
+                max_tokens=60,
                 temperature=0.0,
                 response_format={"type": "json_object"}
             )
@@ -1489,30 +1458,30 @@ class ClasificadorSubtema:
             raw = json.loads(resp.choices[0].message.content).get("subtema", "Varios")
             et = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
 
-            # Si limpiar_tema_geografico detectó que la frase quedó rota
-            # (verbo expuesto tras eliminar ciudad), regenerar directamente
+            # Si quedó "Sin tema" por limpieza de marca, regenerar
             if not et or et.strip().lower() == "sin tema":
                 et = self._refinar(tm, kw, rm, forzar_preposicion=True)
+
+            # Detectar verbo conjugado: frase tipo "Alcalde presenta..."
+            if _tiene_verbo_conjugado(et):
+                et = self._refinar(tm, kw, rm, forzar_preposicion=True,
+                                   prohibir_verbos=True)
 
             # Detectar patrón robótico: sustantivos sin preposición
             def _es_robotico(s):
                 palabras = s.split()
-                if len(palabras) == 2:
-                    # Dos palabras sin nexo = robótico
-                    return True
-                if len(palabras) >= 2:
+                if len(palabras) <= 3:
                     nexos = {"de", "del", "para", "sobre", "en", "con", "por",
                              "ante", "hacia", "entre", "sin", "al", "las", "los",
-                             "una", "uno", "que", "como", "y", "o"}
+                             "una", "uno", "que", "como", "y", "o", "a", "e", "u"}
                     tiene_nexo = any(unidecode(p.lower()) in nexos for p in palabras[1:])
-                    if not tiene_nexo and len(palabras) <= 3:
+                    if not tiene_nexo:
                         return True
                 return False
 
             genericas = {"gestión", "gestion", "actividades", "acciones", "noticias",
                          "información", "informacion", "eventos", "varios", "sin tema",
-                         "actividad corporativa", "gestion corporativa",
-                         "resultados financieros", "tarifas energia"}
+                         "actividad corporativa", "gestion corporativa"}
             es_gen = string_norm_label(et) in {string_norm_label(g) for g in genericas}
             es_rob = _es_robotico(et)
 
@@ -1535,13 +1504,12 @@ class ClasificadorSubtema:
         self._cache[ck] = et
         return et
 
-    def _refinar(self, titulos, kw, resumenes=None, forzar_preposicion=False):
+    def _refinar(self, titulos, kw, resumenes=None, forzar_preposicion=False, prohibir_verbos=False):
         ctx = (
             "\nContexto de resúmenes: " + " | ".join(r[:100] for r in resumenes[:3])
         ) if resumenes else ""
         kw_parts = [w.strip() for w in kw.split(",") if w.strip()]
 
-        # Construir ejemplos dinámicos con preposición explícita
         if len(kw_parts) >= 3:
             ej_bueno = (
                 f"'{kw_parts[0].title()} de {kw_parts[1].title()}', "
@@ -1550,30 +1518,36 @@ class ClasificadorSubtema:
         elif len(kw_parts) >= 2:
             ej_bueno = f"'{kw_parts[0].title()} de {kw_parts[1].title()}'"
         elif len(kw_parts) == 1:
-            ej_bueno = f"'{kw_parts[0].title()} específico'"
+            ej_bueno = f"'{kw_parts[0].title()} en la región'"
         else:
-            ej_bueno = "'Regulación de tarifas eléctricas'"
+            ej_bueno = "'Proyecto de terminal de transportes'"
 
-        # Construir ejemplos malos dinámicos con las mismas kw
         if len(kw_parts) >= 2:
             ej_malo = f"'{kw_parts[0].title()} {kw_parts[1].title()}' (sin preposición)"
         else:
-            ej_malo = "'Actividad corporativa', 'Gestión financiera'"
+            ej_malo = "'Actividad corporativa', 'Gestión institucional'"
 
         instruccion_prep = (
             "  OBLIGATORIO: usa una preposición (de, del, para, sobre, en, por) "
-            "entre los sustantivos. NUNCA dos sustantivos pegados sin nexo.\n"
+            "entre los conceptos. NUNCA dos sustantivos pegados sin nexo.\n"
         ) if forzar_preposicion else ""
 
+        instruccion_verbo = (
+            "  PROHIBIDO: verbos conjugados ('presenta', 'anuncia', 'lanza', 'inaugura', etc.). "
+            "Solo frases nominales (sustantivos + preposiciones).\n"
+            "  NUNCA empieces con cargo ('Alcalde', 'Gobernador', 'Ministro', 'Director').\n"
+        ) if prohibir_verbos else ""
+
         prompt = (
-            "Eres editor jefe. Genera UN subtema periodístico (4-6 palabras) "
-            "como frase nominal completa con preposición.\n\n"
+            "Eres editor jefe. Genera UN subtema periodístico (4-7 palabras) "
+            "como frase nominal sin verbo conjugado.\n\n"
             f"Títulos: {' | '.join(titulos[:5])}{ctx}\n"
             f"Keywords: {kw}\n\n"
             f"{instruccion_prep}"
+            f"{instruccion_verbo}"
             f"CORRECTO: {ej_bueno}, 'Tarifas de energía eléctrica'\n"
-            f"INCORRECTO: {ej_malo}, 'Actividad corporativa'\n"
-            "Tildes y ñ correctas. Sin marcas ni ciudades.\n"
+            f"INCORRECTO: {ej_malo}, 'Alcalde presenta plan'\n"
+            "Tildes y ñ correctas. Sin marcas privadas.\n"
             'JSON: {"subtema":"..."}'
         )
         try:
@@ -2536,7 +2510,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.8 · fix frases rotas + nexos obligatorios</div>
+            <div class="app-header-version">v17.9 · fix verbos conjugados + PKL siempre visible</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -2545,6 +2519,35 @@ def main():
 
     with tab1:
         if not st.session_state.get("processing_complete", False):
+
+            # ── Modo y PKL FUERA del form para que el radio reactive el UI ──
+            st.markdown('<div class="sec-label">Configuración</div>', unsafe_allow_html=True)
+            cl, cr = st.columns([3, 2])
+            with cl:
+                bn = st.text_input("Marca principal", placeholder="Ej: Bancolombia", key="bn")
+                bat = st.text_input("Alias (separados por ;)", placeholder="Ej: Grupo Bancolombia;Ban", key="ba")
+            with cr:
+                mode = st.radio(
+                    "Modo de análisis",
+                    ["API de OpenAI", "Híbrido (PKL + API)", "Solo Modelos PKL"],
+                    index=0, key="mode"
+                )
+
+            tpkl, epkl = None, None
+            if "PKL" in mode:
+                st.markdown('<div class="sec-label">Modelos PKL</div>', unsafe_allow_html=True)
+                p1, p2 = st.columns(2)
+                tpkl = p1.file_uploader(
+                    "Modelo de Sentimiento (.pkl)",
+                    type=["pkl"], key="tpkl",
+                    help="Pipeline sklearn para clasificar tono: -1/0/1 o Negativo/Neutro/Positivo"
+                )
+                epkl = p2.file_uploader(
+                    "Modelo de Temas (.pkl)",
+                    type=["pkl"], key="epkl",
+                    help="Pipeline sklearn para clasificar temas"
+                )
+
             with st.form("main_form"):
                 st.markdown('<div class="sec-label">Archivo de entrada</div>', unsafe_allow_html=True)
                 st.markdown("""
@@ -2558,24 +2561,6 @@ def main():
                     </div>
                 </div>""", unsafe_allow_html=True)
                 f1 = st.file_uploader("Dossier", type=["xlsx"], label_visibility="collapsed", key="f1")
-
-                st.markdown('<div class="sec-label">Configuración</div>', unsafe_allow_html=True)
-                cl, cr = st.columns([3, 2])
-                with cl:
-                    bn = st.text_input("Marca principal", placeholder="Ej: Bancolombia", key="bn")
-                    bat = st.text_input("Alias (separados por ;)", placeholder="Ej: Grupo Bancolombia;Ban", key="ba")
-                with cr:
-                    mode = st.radio(
-                        "Modo",
-                        ["API de OpenAI", "Híbrido (PKL + API)", "Solo Modelos PKL"],
-                        index=0, key="mode"
-                    )
-
-                tpkl, epkl = None, None
-                if "PKL" in mode:
-                    p1, p2 = st.columns(2)
-                    tpkl = p1.file_uploader("Sentimiento .pkl", type=["pkl"])
-                    epkl = p2.file_uploader("Temas .pkl", type=["pkl"])
 
                 st.markdown(
                     f'<div class="cluster-info">'
@@ -2593,7 +2578,11 @@ def main():
                         st.error("Completa todos los campos.")
                     else:
                         al = [a.strip() for a in bat.split(";") if a.strip()]
-                        asyncio.run(run_full_process_async(f1, bn, al, tpkl, epkl, mode))
+                        # Leer mode/tpkl/epkl del session_state ya que están fuera del form
+                        cur_mode = st.session_state.get("mode", "API de OpenAI")
+                        cur_tpkl = st.session_state.get("tpkl")
+                        cur_epkl = st.session_state.get("epkl")
+                        asyncio.run(run_full_process_async(f1, bn, al, cur_tpkl, cur_epkl, cur_mode))
                         st.rerun()
         else:
             total = st.session_state.total_rows
@@ -2636,7 +2625,7 @@ def main():
         render_quick_tab()
 
     st.markdown(
-        '<div class="footer">v17.8 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
+        '<div class="footer">v17.9 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
         unsafe_allow_html=True
     )
 
