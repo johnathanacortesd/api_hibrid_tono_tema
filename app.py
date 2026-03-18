@@ -774,7 +774,7 @@ def run_dossier_logic(sheet):
     for idx, row in enumerate(split_rows): row.update({"original_index": idx, "is_duplicate": False})
     processed_rows = detectar_duplicados_avanzado(split_rows, key_map)
     for row in processed_rows:
-        if row["is_duplicate"]: row.update({key_map["tonoiai"]: "Duplicada", key_map["tema"]: "Duplicada", key_map["subtema"]: "Duplicada"})
+        if row["is_duplicate"]: row.update({key_map["tonoiai"]: "Duplicada", key_map["tema"]: "-", key_map["subtema"]: "-"})
     return processed_rows, key_map
 
 def fix_links_by_media_type(row: Dict[str, Any], key_map: Dict[str, str]):
