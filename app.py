@@ -1008,76 +1008,110 @@ class ClasificadorSubtema:
             pbar.progress(min(ps+0.04*(it+1), 0.52), f"Fusión {it+1}: {fus}")
             if fus == 0: break
 
-    def _generar_etiqueta(self, textos_grp, titulos_grp, resumenes_grp):
-        tn = sorted(set(normalize_title_for_comparison(t) for t in titulos_grp if t))
-        ck = hashlib.md5("|".join(tn[:12]).encode()).hexdigest()
-        if ck in self._cache: return self._cache[ck]
-        tm = list(dict.fromkeys(t[:120] for t in titulos_grp if t))[:6]
-        rm = [str(r)[:200] for r in resumenes_grp[:3] if r and len(str(r)) > 20]
-        ctx_resumenes = ("\n\nRESÚMENES:\n" + "\n".join(f"  · {r}" for r in rm)) if rm else ""
+    def _extraer_keywords_titulos(self, titulos_grp: list, top_n: int = 6) -> list:
+        """
+        Extrae las palabras más frecuentes y significativas de los títulos.
+        Devuelve lista ordenada por frecuencia descendente, excluyendo stopwords
+        y palabras muy cortas. Usado tanto para el prompt como para el fallback.
+        """
         palabras = []
-        for t in titulos_grp[:8]:
+        for t in titulos_grp[:10]:
             for w in string_norm_label(t).split():
                 if len(w) > 3: palabras.append(w)
-        kw = " · ".join(w for w, _ in Counter(palabras).most_common(8))
+        return [w for w, _ in Counter(palabras).most_common(top_n)]
+
+    def _generar_etiqueta(self, textos_grp, titulos_grp, resumenes_grp):
+        # ── Clave de caché basada en títulos normalizados ordenados ──────────
+        # Usar los primeros 12 títulos normalizados (igual que antes) pero
+        # además incluir el count del grupo para diferenciar subgrupos del
+        # mismo conjunto de títulos con distinto tamaño.
+        tn = sorted(set(normalize_title_for_comparison(t) for t in titulos_grp if t))
+        ck = hashlib.md5(("|".join(tn[:12]) + f"#{len(titulos_grp)}").encode()).hexdigest()
+        if ck in self._cache: return self._cache[ck]
+
+        # ── Preparar insumos ─────────────────────────────────────────────────
+        # Solo títulos únicos, máx 5 (no 6) para que el prompt sea más enfocado
+        tm = list(dict.fromkeys(t[:120] for t in titulos_grp if t))[:5]
+        rm = [str(r)[:150] for r in resumenes_grp[:2] if r and len(str(r)) > 20]
+
+        # Keywords: top 6 palabras más frecuentes de los títulos
+        kw_list = self._extraer_keywords_titulos(titulos_grp, top_n=6)
+        kw = ", ".join(kw_list)
+
+        # ── Prompt concreto y específico ─────────────────────────────────────
+        # La clave del código externo: pedir CONCRECIÓN explícita con ejemplo
+        # de "malo genérico" vs "bueno específico" usando las propias keywords.
+        # Se reduce max_tokens a 40 para forzar respuestas cortas y directas.
+        ctx_resumenes = ("\nRESÚMENES:\n" + "\n".join(f"  · {r}" for r in rm)) if rm else ""
         prompt = (
-            "Eres editor de un medio de comunicación. "
-            "Crea UN subtema periodístico en español (3-5 palabras) que funcione "
-            "como CATEGORÍA EDITORIAL, no como resumen ni titular.\n\n"
-            "TÍTULOS DEL GRUPO:\n" + "\n".join(f"  · {t}" for t in tm)
+            "Eres editor de un medio. "
+            "Genera UN subtema periodístico CONCRETO (3-5 palabras) para este grupo de noticias.\n\n"
+            "TÍTULOS:\n" + "\n".join(f"  · {t}" for t in tm)
             + ctx_resumenes
-            + f"\n\nPALABRAS CLAVE: {kw}\n\n"
-            "REGLAS ESTRICTAS:\n"
-            "  1. Debe ser una CATEGORÍA temática (ej: 'Infraestructura vial', "
-            "'Gestión ambiental', 'Regulación financiera'), NO un titular ni resumen.\n"
-            "  2. Estructura: sustantivo principal + adjetivo o complemento nominal. "
-            "NUNCA verbo conjugado ni adverbio al final.\n"
-            "  3. Sin nombres de marcas, ciudades ni gentilicios.\n"
-            "  4. Tildes y ñ correctas.\n"
-            "  5. Si los títulos tratan temas distintos, elige el hilo temático común más abstracto.\n\n"
-            "CORRECTO: 'Infraestructura de transporte', 'Regulación del mercado', "
-            "'Seguridad ciudadana', 'Innovación tecnológica', 'Política laboral'\n"
-            "INCORRECTO: 'Anuncio nueva terminal', 'Participación cívica calma', "
-            "'Lanzamiento app pagos', 'Gran acuerdo comercial'\n\n"
+            + f"\n\nPALABRAS CLAVE DEL GRUPO: {kw}\n\n"
+            "REGLAS:\n"
+            "  1. SÉ ESPECÍFICO: usa las palabras clave del grupo, no términos genéricos.\n"
+            f"     MALO: 'Actividad legislativa'  →  BUENO: '{kw_list[0].title()} {kw_list[1].title()}' (si aplica)\n"
+            "  2. Estructura: sustantivo + complemento nominal o adjetivo calificativo.\n"
+            "  3. Sin marcas, ciudades ni gentilicios. Tildes y ñ correctas.\n"
+            "  4. Si los títulos son heterogéneos, busca el denominador temático más preciso.\n\n"
+            "EJEMPLOS CORRECTOS: 'Congresistas con antecedentes', 'Tarifas de energía eléctrica', "
+            "'Infraestructura vial urbana', 'Regulación de criptomonedas'\n"
+            "EJEMPLOS INCORRECTOS: 'Corrupción congreso', 'Tema energético', "
+            "'Actividad legislativa', 'Anuncio nueva terminal'\n\n"
             'JSON: {"subtema":"..."}'
         )
+        # ─────────────────────────────────────────────────────────────────────
+
         try:
             resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION,
-                messages=[{"role":"user","content":prompt}], max_tokens=80, temperature=0.0,
+                messages=[{"role":"user","content":prompt}],
+                max_tokens=40,   # reducido: fuerza concisión
+                temperature=0.0,
                 response_format={"type":"json_object"})
             u = resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
             if u:
                 st.session_state['tokens_input']  += (u.get('prompt_tokens')     if isinstance(u,dict) else getattr(u,'prompt_tokens',0))     or 0
                 st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u,dict) else getattr(u,'completion_tokens',0)) or 0
+
             raw = json.loads(resp.choices[0].message.content).get("subtema","Varios")
             et  = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
-            genericas = {"gestión","gestion","actividades","acciones","noticias","información","informacion","eventos","varios","sin tema"}
+
+            # Rechazar genéricas
+            genericas = {"gestión","gestion","actividades","acciones","noticias",
+                         "información","informacion","eventos","varios","sin tema"}
             if string_norm_label(et) in {string_norm_label(g) for g in genericas} or len(et.split()) < 2:
                 et = self._refinar(tm, kw, rm)
+
+            # Validar estructura editorial
             if not _validar_estructura_subtema(et):
                 et = self._refinar(tm, kw, rm)
                 if not _validar_estructura_subtema(et):
                     et = self._fallback(titulos_grp)
+
             et = _validar_etiqueta_completa(et, titulos_grp=titulos_grp, resumenes_grp=resumenes_grp,
                 marca=self.marca, aliases=self.aliases, fallback_fn=self._fallback)
         except:
             et = self._fallback(titulos_grp)
+
         et = capitalizar_etiqueta(et); self._cache[ck] = et; return et
 
     def _refinar(self, titulos, kw, resumenes=None):
-        ctx = f"\nContexto: {' | '.join(r[:100] for r in resumenes[:2])}" if resumenes else ""
+        ctx = f"\nContexto: {' | '.join(r[:80] for r in resumenes[:2])}" if resumenes else ""
+        kw_parts = [w.strip() for w in kw.split(",") if w.strip()]
+        ejemplo_bueno = f"'{kw_parts[0].title()} {kw_parts[1].title()}'" if len(kw_parts) >= 2 else "'Política laboral'"
         prompt = (
             "Eres editor de un medio. "
-            f"Títulos: {' | '.join(titulos[:4])}\nPalabras clave: {kw}{ctx}\n\n"
-            "Genera una CATEGORÍA editorial (3-5 palabras): sustantivo principal + modificador. "
-            "NO copiar frases del titular. Tildes y ñ correctas.\n"
-            "CORRECTO: 'Política laboral', 'Expansión comercial', 'Infraestructura urbana'\n"
-            "INCORRECTO: 'Nuevo acuerdo laboral empresa', 'Lanzamiento producto digital'\n"
+            f"Títulos: {' | '.join(titulos[:4])}\nKeywords: {kw}{ctx}\n\n"
+            "Genera UN subtema CONCRETO (3-5 palabras) usando las keywords del grupo: "
+            "sustantivo + complemento específico. Tildes y ñ correctas.\n"
+            f"CORRECTO: {ejemplo_bueno}, 'Tarifas de energía eléctrica'\n"
+            "INCORRECTO: 'Actividad corporativa', 'Tema energético'\n"
             'JSON: {"subtema":"..."}'
         )
         try:
             resp = call_with_retries(openai.ChatCompletion.create, model=OPENAI_MODEL_CLASIFICACION,
-                messages=[{"role":"user","content":prompt}], max_tokens=80, temperature=0.15,
+                messages=[{"role":"user","content":prompt}], max_tokens=40, temperature=0.15,
                 response_format={"type":"json_object"})
             u = resp.get('usage',{}) if isinstance(resp,dict) else getattr(resp,'usage',{})
             if u:
@@ -1704,7 +1738,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.2 · coherencia etiqueta↔texto</div>
+            <div class="app-header-version">v17.3 · subtemas concretos</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -1781,6 +1815,6 @@ def main():
                 st.session_state.clear(); st.session_state.password_correct = pwd; st.rerun()
 
     with tab2: render_quick_tab()
-    st.markdown('<div class="footer">v17.2 · Análisis de Noticias con IA · Johnathan Cortés ©</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">v17.3 · Análisis de Noticias con IA · Johnathan Cortés ©</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__": main()
