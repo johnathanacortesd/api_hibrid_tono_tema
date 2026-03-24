@@ -769,7 +769,7 @@ def normalizar_tipo_medio(tipo_raw):
         "television": "Televisión", "televisión": "Televisión",
         "senal abierta": "Televisión", "señal abierta": "Televisión",
         "diario": "Prensa", "prensa": "Prensa",
-        "revista": "Revista", "revistas": "Revista",
+        "revista": "Revistas", "revistas": "Revistas",
         "online": "Internet", "internet": "Internet",
         "digital": "Internet", "web": "Internet"
     }.get(t, str(tipo_raw).strip().title() or "Otro")
