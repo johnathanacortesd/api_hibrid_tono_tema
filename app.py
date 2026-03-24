@@ -2238,7 +2238,7 @@ def fix_links_by_media_type(row, km):
         row[ls] = {"value": "", "url": None}
     elif tipo == "Internet":
         row[ln], row[ls] = rs, rl
-    elif tipo in ("Prensa", "Revista"):
+    elif tipo in ("Prensa", "Revistas"):
         if not hurl(rl) and hurl(rs):
             row[ln] = rs
         row[ls] = {"value": "", "url": None}
