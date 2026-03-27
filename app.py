@@ -2126,18 +2126,52 @@ def analizar_temas_con_pkl(textos, pkl_file):
 # ======================================
 # Duplicados y Excel
 # ======================================
+def _extraer_url_streaming(row, km):
+    """
+    Extrae la URL incrustada en la celda Link (Streaming - Imagen).
+    La celda puede ser un dict con clave 'url' (ya procesada por extract_link)
+    o un string plano.
+    """
+    ls_key = km.get("link_streaming")
+    if not ls_key:
+        return None
+    val = row.get(ls_key)
+    if isinstance(val, dict):
+        url = val.get("url")
+        return url.strip() if url and url.strip() else None
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return None
+
+
 def detectar_duplicados_avanzado(rows, km):
     processed = deepcopy(rows)
-    seen_url, seen_bcast = {}, {}
+    seen_url, seen_bcast, seen_streaming = {}, {}, {}
     tb = defaultdict(list)
+
     for i, row in enumerate(processed):
         if row.get("is_duplicate"):
             continue
-        tipo = normalizar_tipo_medio(str(row.get(km.get("tipodemedio", ""))))
+
+        tipo    = normalizar_tipo_medio(str(row.get(km.get("tipodemedio", ""))))
         mencion = norm_key(row.get(km.get("menciones", "")))
-        medio = norm_key(row.get(km.get("medio", "")))
+        medio   = norm_key(row.get(km.get("medio", "")))
+
+        # ── NUEVA REGLA: mismo Link (Streaming - Imagen) + misma Menciones-Empresa ──
+        # Se aplica a TODOS los tipos de medio, independientemente de título o fecha.
+        streaming_url = _extraer_url_streaming(row, km)
+        if streaming_url and mencion:
+            sk = (streaming_url, mencion)
+            if sk in seen_streaming:
+                row["is_duplicate"] = True
+                row["idduplicada"] = processed[seen_streaming[sk]].get(
+                    km.get("idnoticia", ""), ""
+                )
+                continue
+            seen_streaming[sk] = i
+
         if tipo == "Internet":
-            li = row.get(km.get("link_nota", {})) or {}
+            li  = row.get(km.get("link_nota", {})) or {}
             url = li.get("url") if isinstance(li, dict) else None
             if url and mencion:
                 k = (url, mencion)
@@ -2148,6 +2182,7 @@ def detectar_duplicados_avanzado(rows, km):
                 seen_url[k] = i
             if medio and mencion:
                 tb[(medio, mencion)].append(i)
+
         elif tipo in ("Radio", "Televisión"):
             hora = str(row.get(km.get("hora", ""), "")).strip()
             if mencion and medio and hora:
@@ -2157,6 +2192,7 @@ def detectar_duplicados_avanzado(rows, km):
                     row["idduplicada"] = processed[seen_bcast[k]].get(km.get("idnoticia", ""), "")
                 else:
                     seen_bcast[k] = i
+
     for idxs in tb.values():
         if len(idxs) < 2:
             continue
@@ -2165,15 +2201,16 @@ def detectar_duplicados_avanzado(rows, km):
                 a, b = idxs[i], idxs[j]
                 if processed[a].get("is_duplicate") or processed[b].get("is_duplicate"):
                     continue
-                ta = normalize_title_for_comparison(processed[a].get(km.get("titulo", "")))
+                ta  = normalize_title_for_comparison(processed[a].get(km.get("titulo", "")))
                 tb_ = normalize_title_for_comparison(processed[b].get(km.get("titulo", "")))
                 if ta and tb_ and SequenceMatcher(None, ta, tb_).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
                     if len(ta) < len(tb_):
                         processed[a]["is_duplicate"] = True
-                        processed[a]["idduplicada"] = processed[b].get(km.get("idnoticia", ""), "")
+                        processed[a]["idduplicada"]  = processed[b].get(km.get("idnoticia", ""), "")
                     else:
                         processed[b]["is_duplicate"] = True
-                        processed[b]["idduplicada"] = processed[a].get(km.get("idnoticia", ""), "")
+                        processed[b]["idduplicada"]  = processed[a].get(km.get("idnoticia", ""), "")
+
     return processed
 
 
@@ -2226,13 +2263,13 @@ def run_dossier_logic(sheet):
 
 def fix_links_by_media_type(row, km):
     tkey = km.get("tipodemedio")
-    ln = km.get("link_nota")
-    ls = km.get("link_streaming")
+    ln   = km.get("link_nota")
+    ls   = km.get("link_streaming")
     if not (tkey and ln and ls):
         return
     tipo = row.get(tkey, "")
-    rl = row.get(ln) or {"value": "", "url": None}
-    rs = row.get(ls) or {"value": "", "url": None}
+    rl   = row.get(ln) or {"value": "", "url": None}
+    rs   = row.get(ls) or {"value": "", "url": None}
     hurl = lambda x: isinstance(x, dict) and bool(x.get("url"))
     if tipo in ("Radio", "Televisión"):
         row[ls] = {"value": "", "url": None}
@@ -2270,9 +2307,9 @@ def generate_output_excel(rows, km):
             row[rk] = corregir_texto(row.get(rk))
         out, links = [], {}
         for ci, h in enumerate(ORDER, 1):
-            dk = km.get(norm_key(h), norm_key(h))
+            dk  = km.get(norm_key(h), norm_key(h))
             val = row.get(dk)
-            cv = None
+            cv  = None
             if h in NUM:
                 try:
                     cv = float(val) if val is not None and str(val).strip() != "" else None
@@ -2287,7 +2324,7 @@ def generate_output_excel(rows, km):
             out.append(cv)
         ws.append(out)
         for ci, url in links.items():
-            cell = ws.cell(row=ws.max_row, column=ci)
+            cell       = ws.cell(row=ws.max_row, column=ci)
             cell.hyperlink = url
             cell.style = "HL"
     buf = io.BytesIO()
@@ -2313,15 +2350,15 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode):
         rows, km = run_dossier_logic(load_workbook(df_file, data_only=True).active)
         s.update(label="✓ Paso 1", state="complete")
     with st.status("Paso 2 · Mapeos", expanded=True) as s:
-        dfr = _cargar_mapa_excel(st.secrets["REGION_MAP_URL"])
+        dfr  = _cargar_mapa_excel(st.secrets["REGION_MAP_URL"])
         rmap = {str(k).lower().strip(): v for k, v in pd.Series(dfr.iloc[:, 1].values, index=dfr.iloc[:, 0]).to_dict().items()}
-        dfi = _cargar_mapa_excel(st.secrets["INTERNET_MAP_URL"])
+        dfi  = _cargar_mapa_excel(st.secrets["INTERNET_MAP_URL"])
         imap = {str(k).lower().strip(): v for k, v in pd.Series(dfi.iloc[:, 1].values, index=dfi.iloc[:, 0]).to_dict().items()}
         for row in rows:
             mk = str(row.get(km.get("medio", ""), "")).lower().strip()
             row[km.get("region")] = rmap.get(mk, "N/A")
             if mk in imap:
-                row[km.get("medio")] = imap[mk]
+                row[km.get("medio")]       = imap[mk]
                 row[km.get("tipodemedio")] = "Internet"
             fix_links_by_media_type(row, km)
         s.update(label="✓ Paso 2", state="complete")
@@ -2354,7 +2391,7 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode):
             pb = st.progress(0)
             if "Solo Modelos PKL" in mode:
                 subtemas = ["N/A"] * len(ta)
-                temas = ["N/A"] * len(ta)
+                temas    = ["N/A"] * len(ta)
             else:
                 subtemas = ClasificadorSubtema(bn, ba).procesar_lote(
                     df["_txt"], pb, df[km["resumen"]], df[km["titulo"]]
@@ -2373,11 +2410,11 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode):
             if not row.get("is_duplicate"):
                 row.update(rm2.get(row["original_index"], {}))
     gc.collect()
-    ci = (st.session_state['tokens_input'] / 1e6) * PRICE_INPUT_1M
-    co = (st.session_state['tokens_output'] / 1e6) * PRICE_OUTPUT_1M
+    ci = (st.session_state['tokens_input']     / 1e6) * PRICE_INPUT_1M
+    co = (st.session_state['tokens_output']    / 1e6) * PRICE_OUTPUT_1M
     ce = (st.session_state['tokens_embedding'] / 1e6) * PRICE_EMBEDDING_1M
     with st.status("Paso 5 · Informe", expanded=True) as s:
-        st.session_state["output_data"] = generate_output_excel(rows, km)
+        st.session_state["output_data"]     = generate_output_excel(rows, km)
         st.session_state["output_filename"] = f"Informe_IA_{bn.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
         st.session_state["processing_complete"] = True
         st.session_state.update({
@@ -2416,8 +2453,8 @@ async def run_quick_async(df, tc, sc, bn, al):
         df['Tema'] = temas
         s.update(label="✓ Clasificación", state="complete")
     df.drop(columns=['_txt'], inplace=True)
-    ci = (st.session_state['tokens_input'] / 1e6) * PRICE_INPUT_1M
-    co = (st.session_state['tokens_output'] / 1e6) * PRICE_OUTPUT_1M
+    ci = (st.session_state['tokens_input']     / 1e6) * PRICE_INPUT_1M
+    co = (st.session_state['tokens_output']    / 1e6) * PRICE_OUTPUT_1M
     ce = (st.session_state['tokens_embedding'] / 1e6) * PRICE_EMBEDDING_1M
     st.session_state['quick_cost'] = f"${ci + co + ce:.4f} USD"
     return df
@@ -2460,7 +2497,7 @@ def render_quick_tab():
         f = st.file_uploader("Excel", type=["xlsx"], label_visibility="collapsed", key="qu")
         if f:
             try:
-                st.session_state.quick_df = pd.read_excel(f)
+                st.session_state.quick_df   = pd.read_excel(f)
                 st.session_state.quick_name = f.name
                 st.rerun()
             except Exception as e:
@@ -2470,10 +2507,10 @@ def render_quick_tab():
         with st.form("qf"):
             cols = st.session_state.quick_df.columns.tolist()
             c1, c2 = st.columns(2)
-            tc = c1.selectbox("Col. título", cols, 0)
+            tc = c1.selectbox("Col. título",  cols, 0)
             sc = c2.selectbox("Col. resumen", cols, 1 if len(cols) > 1 else 0)
-            bn = st.text_input("Marca", placeholder="Ej: Bancolombia")
-            bat = st.text_input("Alias (;)", placeholder="Ej: Grupo Bancolombia;Ban")
+            bn  = st.text_input("Marca",       placeholder="Ej: Bancolombia")
+            bat = st.text_input("Alias (;)",   placeholder="Ej: Grupo Bancolombia;Ban")
             if st.form_submit_button("Analizar", use_container_width=True, type="primary"):
                 if not bn:
                     st.error("Indica la marca.")
@@ -2510,7 +2547,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.9 · fix verbos conjugados + PKL siempre visible</div>
+            <div class="app-header-version">v17.10 · nueva regla duplicados streaming + fix verbos conjugados</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -2524,7 +2561,7 @@ def main():
             st.markdown('<div class="sec-label">Configuración</div>', unsafe_allow_html=True)
             cl, cr = st.columns([3, 2])
             with cl:
-                bn = st.text_input("Marca principal", placeholder="Ej: Bancolombia", key="bn")
+                bn  = st.text_input("Marca principal", placeholder="Ej: Bancolombia", key="bn")
                 bat = st.text_input("Alias (separados por ;)", placeholder="Ej: Grupo Bancolombia;Ban", key="ba")
             with cr:
                 mode = st.radio(
@@ -2586,10 +2623,10 @@ def main():
                         st.rerun()
         else:
             total = st.session_state.total_rows
-            uniq = st.session_state.unique_rows
-            dups = st.session_state.duplicates
-            dur = st.session_state.process_duration
-            cost = st.session_state.get("process_cost", "$0.00")
+            uniq  = st.session_state.unique_rows
+            dups  = st.session_state.duplicates
+            dur   = st.session_state.process_duration
+            cost  = st.session_state.get("process_cost", "$0.00")
             st.markdown(
                 '<div class="success-banner"><div class="success-icon">✓</div>'
                 '<div><div class="success-title">Análisis completado</div>'
@@ -2625,7 +2662,7 @@ def main():
         render_quick_tab()
 
     st.markdown(
-        '<div class="footer">v17.9 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
+        '<div class="footer">v17.10 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
         unsafe_allow_html=True
     )
 
