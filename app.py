@@ -635,16 +635,6 @@ def limpiar_tema(tema):
 
 
 def limpiar_tema_geografico(tema, marca, aliases):
-    """
-    Limpia el tema eliminando SOLO:
-    - El nombre de la marca y sus aliases
-    - Frases genéricas de Colombia ("en Colombia", "de Colombia", "del país")
-
-    NO elimina ciudades, departamentos ni gentilicios — son contexto
-    geográfico legítimo dentro de un subtema periodístico.
-    El LLM ya recibe instrucción de no incluir ciudades en su prompt;
-    si las incluye es porque son parte relevante del subtema.
-    """
     if not tema:
         return "Sin tema"
 
@@ -694,13 +684,6 @@ def string_norm_label(s):
 
 
 def _validar_estructura_subtema(etiqueta: str) -> bool:
-    """
-    Valida que la etiqueta sea una frase nominal editorial válida:
-    - Entre 3 y 7 palabras
-    - No empiece con verbo de titular ni termine en palabra de estado
-    - Si tiene ≤3 palabras, debe contener al menos una preposición/nexo
-      (evita "Avances operación canal", "Tarifas energía eléctrica" con 3 sustantivos)
-    """
     if not etiqueta or len(etiqueta.split()) < 2:
         return False
     if len(etiqueta.split()) > 7:
@@ -711,8 +694,6 @@ def _validar_estructura_subtema(etiqueta: str) -> bool:
         return False
 
     palabras = etiqueta.split()
-    # Para frases cortas (2-4 palabras), exigir al menos un nexo gramatical
-    # que indique que es una frase nominal completa y no una lista de palabras clave
     if len(palabras) <= 4:
         nexos = {
             "de","del","para","sobre","en","con","por","ante","hacia",
@@ -1424,7 +1405,6 @@ class ClasificadorSubtema:
             'JSON: {"subtema":"..."}'
         )
 
-        # Detector de verbo conjugado en la etiqueta generada
         _VERBOS_FRASES = re.compile(
             r'\b(presenta|presentan|anuncia|anuncian|lanza|lanzan|inaugura|inauguran|'
             r'realiza|realizan|desarrolla|desarrollan|ejecuta|ejecutan|gestiona|gestionan|'
@@ -1458,16 +1438,12 @@ class ClasificadorSubtema:
             raw = json.loads(resp.choices[0].message.content).get("subtema", "Varios")
             et = limpiar_tema_geografico(limpiar_tema(raw), self.marca, self.aliases)
 
-            # Si quedó "Sin tema" por limpieza de marca, regenerar
             if not et or et.strip().lower() == "sin tema":
                 et = self._refinar(tm, kw, rm, forzar_preposicion=True)
 
-            # Detectar verbo conjugado: frase tipo "Alcalde presenta..."
             if _tiene_verbo_conjugado(et):
-                et = self._refinar(tm, kw, rm, forzar_preposicion=True,
-                                   prohibir_verbos=True)
+                et = self._refinar(tm, kw, rm, forzar_preposicion=True, prohibir_verbos=True)
 
-            # Detectar patrón robótico: sustantivos sin preposición
             def _es_robotico(s):
                 palabras = s.split()
                 if len(palabras) <= 3:
@@ -1789,11 +1765,6 @@ def _validar_estructura_tema(tema: str) -> bool:
 
 
 def _tema_es_igual_a_subtema(tema: str, subtemas_grupo: list) -> bool:
-    """
-    Devuelve True si el nombre de tema generado es demasiado similar
-    a alguno de los subtemas que agrupa (lo cual indica que no es
-    suficientemente general como categoría editorial).
-    """
     if not tema or not subtemas_grupo:
         return False
     tn = string_norm_label(tema)
@@ -2126,6 +2097,32 @@ def analizar_temas_con_pkl(textos, pkl_file):
 # ======================================
 # Duplicados y Excel
 # ======================================
+
+def _normalizar_url(url: str) -> str:
+    """
+    Normaliza una URL para comparación de duplicados:
+    - Convierte a minúsculas
+    - Elimina el esquema (http:// / https://)
+    - Elimina el subdominio 'www.' si está presente
+    - Elimina la barra final si existe
+
+    Ejemplos equivalentes tras normalización:
+      https://elpais.com.co/nota-123  →  elpais.com.co/nota-123
+      https://www.elpais.com.co/nota-123  →  elpais.com.co/nota-123
+      http://WWW.ElPais.com.co/nota-123  →  elpais.com.co/nota-123
+    """
+    if not url:
+        return ""
+    url = url.strip().lower()
+    # Quitar esquema
+    url = re.sub(r'^https?://', '', url)
+    # Quitar www. inicial
+    url = re.sub(r'^www\.', '', url)
+    # Quitar barra final
+    url = url.rstrip('/')
+    return url
+
+
 def _extraer_url_streaming(row, km):
     """
     Extrae la URL incrustada en la celda Link (Streaming - Imagen).
@@ -2146,7 +2143,9 @@ def _extraer_url_streaming(row, km):
 
 def detectar_duplicados_avanzado(rows, km):
     processed = deepcopy(rows)
-    seen_url, seen_bcast, seen_streaming = {}, {}, {}
+    seen_url, seen_bcast = {}, {}
+    # Diccionario clave → índice, usando URL normalizada para streaming
+    seen_streaming: Dict[tuple, int] = {}
     tb = defaultdict(list)
 
     for i, row in enumerate(processed):
@@ -2157,24 +2156,29 @@ def detectar_duplicados_avanzado(rows, km):
         mencion = norm_key(row.get(km.get("menciones", "")))
         medio   = norm_key(row.get(km.get("medio", "")))
 
-        # ── NUEVA REGLA: mismo Link (Streaming - Imagen) + misma Menciones-Empresa ──
-        # Se aplica a TODOS los tipos de medio, independientemente de título o fecha.
-        streaming_url = _extraer_url_streaming(row, km)
-        if streaming_url and mencion:
-            sk = (streaming_url, mencion)
-            if sk in seen_streaming:
-                row["is_duplicate"] = True
-                row["idduplicada"] = processed[seen_streaming[sk]].get(
-                    km.get("idnoticia", ""), ""
-                )
-                continue
-            seen_streaming[sk] = i
+        # ── REGLA: mismo Link (Streaming - Imagen) normalizado + misma Menciones-Empresa ──
+        # Se aplica a TODOS los tipos de medio. La normalización elimina diferencias
+        # entre "https://www.dominio.com/ruta" y "https://dominio.com/ruta".
+        streaming_url_raw = _extraer_url_streaming(row, km)
+        if streaming_url_raw and mencion:
+            streaming_url_norm = _normalizar_url(streaming_url_raw)
+            if streaming_url_norm:
+                sk = (streaming_url_norm, mencion)
+                if sk in seen_streaming:
+                    row["is_duplicate"] = True
+                    row["idduplicada"] = processed[seen_streaming[sk]].get(
+                        km.get("idnoticia", ""), ""
+                    )
+                    continue
+                seen_streaming[sk] = i
 
         if tipo == "Internet":
             li  = row.get(km.get("link_nota", {})) or {}
             url = li.get("url") if isinstance(li, dict) else None
             if url and mencion:
-                k = (url, mencion)
+                # También normalizar la URL de link_nota para consistencia
+                url_norm = _normalizar_url(url)
+                k = (url_norm, mencion)
                 if k in seen_url:
                     row["is_duplicate"] = True
                     row["idduplicada"] = processed[seen_url[k]].get(km.get("idnoticia", ""), "")
@@ -2547,7 +2551,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.10 · nueva regla duplicados streaming + fix verbos conjugados</div>
+            <div class="app-header-version">v17.11 · dedup streaming por URL normalizada (www / https)</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -2662,7 +2666,7 @@ def main():
         render_quick_tab()
 
     st.markdown(
-        '<div class="footer">v17.10 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
+        '<div class="footer">v17.11 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
         unsafe_allow_html=True
     )
 
