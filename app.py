@@ -2055,6 +2055,7 @@ def consolidar_temas(subtemas, textos, pbar):
         capitalizar_etiqueta(_recortar_frase_completa(t) if not _frase_esta_completa(t) else t)
         for t in tf_validado
     ]
+    tf_validado = _unificar_tema_por_subtema(tf_validado, subtemas)
     st.info(f"Temas: **{len(set(tf_validado))}** (de {len(set(subtemas))} subtemas) · Máx: {NUM_TEMAS_MAX}")
     pbar.progress(1.0, "Temas listos")
     return tf_validado
@@ -2123,6 +2124,16 @@ def _post_validar_tema_vs_subtema(temas, subtemas):
                 if nuevo and not _tema_es_igual_a_subtema(nuevo, [sub_unico]) and _frase_esta_completa(nuevo):
                     reemplazos[tema] = capitalizar_etiqueta(nuevo)
     return [reemplazos.get(t, t) for t in temas] if reemplazos else temas
+
+
+def _unificar_tema_por_subtema(temas, subtemas):
+    sub_to_temas = defaultdict(list)
+    for t, s in zip(temas, subtemas):
+        sub_to_temas[s].append(t)
+    sub_to_best = {}
+    for sub, tema_list in sub_to_temas.items():
+        sub_to_best[sub] = Counter(tema_list).most_common(1)[0][0]
+    return [sub_to_best[s] for s in subtemas]
 
 
 def analizar_temas_con_pkl(textos, pkl_file):
@@ -2445,7 +2456,7 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode):
             if "PKL" in mode and epkl:
                 tp = analizar_temas_con_pkl(df["_txt"].tolist(), epkl)
                 if tp:
-                    df[km["tema"]] = tp
+                    df[km["tema"]] = _unificar_tema_por_subtema(tp, subtemas)
             else:
                 df[km["tema"]] = temas
             s.update(label="✓ Paso 4 · Clasificación", state="complete")
