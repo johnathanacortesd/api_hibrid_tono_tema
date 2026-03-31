@@ -47,7 +47,7 @@ UMBRAL_TEMA    = 0.72
 NUM_TEMAS_MAX  = 15
 
 UMBRAL_DEDUP_LABEL           = 0.78
-UMBRAL_FUSION_SUBTEMAS       = 0.82
+UMBRAL_FUSION_SUBTEMAS       = 0.78
 UMBRAL_FUSION_INTERGRUPO     = 0.84
 MAX_ITER_FUSION              = 5
 
@@ -836,6 +836,22 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
                 continue
             if SequenceMatcher(None, normed[i], normed[j]).ratio() >= umbral:
                 union(i, j)
+    for i in range(n):
+        if not normed[i]:
+            continue
+        tokens_i = set(normed[i].split())
+        if len(tokens_i) < 2:
+            continue
+        for j in range(i + 1, n):
+            if not normed[j] or find(i) == find(j):
+                continue
+            tokens_j = set(normed[j].split())
+            if len(tokens_j) < 2:
+                continue
+            interseccion = tokens_i & tokens_j
+            menor = min(len(tokens_i), len(tokens_j))
+            if menor > 0 and len(interseccion) / menor >= 0.6:
+                union(i, j)
     le = get_embeddings_batch(unique)
     vp = [(i, le[i]) for i in range(n) if le[i] is not None]
     if len(vp) >= 2:
@@ -843,7 +859,7 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
         sm = cosine_similarity(np.array(vv))
         for pi in range(len(vi)):
             for pj in range(pi + 1, len(vi)):
-                if sm[pi][pj] >= umbral + 0.05:
+                if sm[pi][pj] >= umbral:
                     if find(vi[pi]) != find(vi[pj]):
                         union(vi[pi], vi[pj])
     freq = Counter(etiquetas)
@@ -1630,8 +1646,22 @@ class ClasificadorSubtema:
                 np.array(emb_sub).reshape(1, -1)
             )[0][0]
             if sim < UMBRAL_COHERENCIA_ETIQUETA:
-                nueva = self._generar_etiqueta([textos[i]], [titulos[i]], [resumenes[i]])
-                subtemas[i] = capitalizar_etiqueta(nueva)
+                mejor_sub, mejor_sim = sub, sim
+                for otro_sub, emb_otro in emb_subtemas.items():
+                    if otro_sub == sub:
+                        continue
+                    sim_otro = cosine_similarity(
+                        np.array(emb_txt).reshape(1, -1),
+                        np.array(emb_otro).reshape(1, -1)
+                    )[0][0]
+                    if sim_otro > mejor_sim:
+                        mejor_sim = sim_otro
+                        mejor_sub = otro_sub
+                if mejor_sub != sub and mejor_sim > UMBRAL_COHERENCIA_ETIQUETA:
+                    subtemas[i] = mejor_sub
+                else:
+                    nueva = self._generar_etiqueta([textos[i]], [titulos[i]], [resumenes[i]])
+                    subtemas[i] = capitalizar_etiqueta(nueva)
                 incoherentes += 1
 
         if incoherentes:
@@ -1660,8 +1690,18 @@ class ClasificadorSubtema:
                 et_ind = self._generar_etiqueta([textos[i]], [titulos[i]], [resumenes[i]])
                 subtemas[i] = capitalizar_etiqueta(et_ind)
 
-        pbar.progress(0.95, "Fase 7 · Completitud...")
+        pbar.progress(0.93, "Fase 7 · Completitud...")
         subtemas = self._validar_completitud_final(subtemas, textos, titulos, resumenes)
+
+        pbar.progress(0.97, "Fase 8 · Dedup final...")
+        subtemas = dedup_labels(subtemas, UMBRAL_DEDUP_LABEL)
+        textos_por_sub2 = defaultdict(list)
+        for i, s in enumerate(subtemas):
+            textos_por_sub2[s].append(textos[i])
+        subtemas = _fusionar_subtemas_semanticos(
+            subtemas, textos_por_sub2, self.marca, self.aliases, UMBRAL_FUSION_SUBTEMAS
+        )
+
         subtemas = [capitalizar_etiqueta(s) for s in subtemas]
         nf = len(set(subtemas))
         pbar.progress(1.0, f"{nf} subtemas")
