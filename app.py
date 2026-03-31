@@ -1122,9 +1122,14 @@ class ClasificadorTono:
         resultado = []
         for i, sent in enumerate(oraciones):
             if self.brand_re.search(unidecode(sent.lower())):
-                ctx = (oraciones[i - 1] + " " + sent) if i > 0 else sent
-                resultado.append(ctx.strip())
-        return list(dict.fromkeys(resultado))[:5] if resultado else [texto[:600]]
+                partes = []
+                if i > 0:
+                    partes.append(oraciones[i - 1])
+                partes.append(sent)
+                if i < len(oraciones) - 1:
+                    partes.append(oraciones[i + 1])
+                resultado.append(" ".join(partes).strip())
+        return list(dict.fromkeys(resultado))[:5]
 
     def _es_sujeto(self, oracion):
         on = unidecode(oracion.lower())
@@ -1156,18 +1161,25 @@ class ClasificadorTono:
             p, n = self._sentimiento_oracion(s)
             tp += p
             tn += n
-        if tp >= 4 and tp > tn * 2.5:
+        if tp >= 2 and tp > tn * 2:
             return "Positivo"
-        if tn >= 4 and tn > tp * 2.5:
+        if tn >= 2 and tn > tp * 2:
             return "Negativo"
         return None
 
     async def _llm(self, oraciones, texto):
-        fragmentos = "\n".join(f"  → {s[:250]}" for s in oraciones[:4])
+        fragmentos = "\n".join(f"  → {s[:300]}" for s in oraciones[:4])
         prompt = (
-            f"Evalúa sentimiento hacia '{self.marca}' (alias: {', '.join(self.aliases) if self.aliases else 'N/A'}).\n"
-            f"REGLAS: Solo '{self.marca}'. Competidor negativo=Neutro. No protagonista=Neutro.\n"
-            f"ORACIONES:\n{fragmentos}\nCONTEXTO:\n{texto[:300]}...\n"
+            f"Evalúa el sentimiento EXCLUSIVAMENTE hacia '{self.marca}'"
+            f" (alias: {', '.join(self.aliases) if self.aliases else 'N/A'}) "
+            f"en los fragmentos donde se le menciona.\n"
+            f"REGLAS CLAVE:\n"
+            f"- Evalúa SOLO cómo se habla de '{self.marca}', NO el tono general de la noticia.\n"
+            f"- Si la noticia es negativa pero '{self.marca}' es mencionada positivamente → Positivo.\n"
+            f"- Si la noticia es positiva pero '{self.marca}' es criticada → Negativo.\n"
+            f"- Si '{self.marca}' solo se menciona de paso sin juicio → Neutro.\n"
+            f"- Competidor negativo NO hace a '{self.marca}' positivo → Neutro.\n"
+            f"FRAGMENTOS CON MENCIÓN:\n{fragmentos}\n"
             f'JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
         )
         try:
@@ -1191,6 +1203,8 @@ class ClasificadorTono:
     async def _clasificar(self, texto, sem):
         async with sem:
             om = self._extraer_oraciones_marca(texto)
+            if not om:
+                return {"tono": "Neutro"}
             r = self._reglas(om)
             if r:
                 return {"tono": r}
