@@ -1286,6 +1286,39 @@ class ClasificadorSubtema:
                 if SequenceMatcher(None, norm[i], norm[j]).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
                     dsu.union(i, j)
 
+    def _paso2b_keywords(self, titulos, dsu):
+        stop = {
+            'el','la','los','las','un','una','unos','unas','de','del','al',
+            'en','con','por','para','que','se','su','sus','es','son','fue',
+            'como','mas','pero','sin','sobre','entre','tras','esta','este',
+            'esto','hay','ser','han','ha','ya','muy','otro','otra','otros',
+            'otras','todo','toda','todos','todas','puede','desde','hasta',
+            'donde','cuando','quien','cual','cada','nos','les','ante','bajo',
+            'nueva','nuevo','nuevos','nuevas','forma','hace','asi','sera',
+            'segun','tiene','fueron','sido','hacer','dice','dijo','tambien',
+        }
+        titulo_words = []
+        for t in titulos:
+            ws = set()
+            for w in re.findall(r'[a-z]+', unidecode(str(t).lower())):
+                if len(w) >= 5 and w not in stop:
+                    ws.add(w)
+            titulo_words.append(ws)
+        word_freq = Counter()
+        for ws in titulo_words:
+            for w in ws:
+                word_freq[w] += 1
+        n = len(titulos)
+        max_freq = max(2, int(n * 0.03))
+        rare_index = defaultdict(list)
+        for i, ws in enumerate(titulo_words):
+            for w in ws:
+                if 2 <= word_freq[w] <= max_freq:
+                    rare_index[w].append(i)
+        for idxs in rare_index.values():
+            for j in idxs[1:]:
+                dsu.union(idxs[0], j)
+
     def _paso3(self, et, ae, dsu, pbar, ps):
         n = len(et)
         if n < 2:
@@ -1609,6 +1642,8 @@ class ClasificadorSubtema:
         self._paso1(titulos, resumenes, dsu)
         pbar.progress(0.12, "Fase 2 · Títulos...")
         self._paso2(titulos, dsu)
+        pbar.progress(0.15, "Fase 2b · Keywords raras...")
+        self._paso2b_keywords(titulos, dsu)
         pbar.progress(0.18, "Embeddings...")
         ae = get_embeddings_batch(et)
         pbar.progress(0.20, "Fase 3 · Clustering...")
