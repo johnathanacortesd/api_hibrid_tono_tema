@@ -1490,28 +1490,42 @@ class ClasificadorTono:
             return {"tono": "Neutro"}
 
     def _check_override(self, texto):
-        """Override de tono cuando el texto tiene señales obvias, aunque la marca no aparezca."""
+        """Override de tono: ¿la marca está siendo criticada o elogiada directamente?
+        NO califica el tono general de la noticia, sino el impacto en la marca."""
         t = unidecode(texto.lower())
+        # Positivo SÓLO si la marca/voceros es sujeto de acción positiva
         strong_pos = [
-            'liderando', 'reconocimiento', 'reconocido', 'premiado', 'celebra',
-            'exito', 'exit', 'mejores resultados', 'sostenibilidad', 'innovador',
-            'refuerza', 'impulso', 'impulsa', 'destaca',
-            'apertura de mercado', 'exportaciones', 'exportar', 'anunci',
-            'nuevo mercado', 'acuerdo comercial', 'expansi', 'certificaci',
-            'aprobaci', 'habilitaci', 'ingreso a mercado', 'posicionamiento',
-            'aumento de ventas', 'crecimiento de', 'nuevos mercados', 'aliados',
-            'respaldo', 'apoyo institucional', 'fortalece', 'consolida'
+            'la federaci', 'fenavi', 'los avicultores', 'el gremio',
+            'voceros de', 'voceros de fenavi', 'según fenavi', 'según la federaci',
+            'anunci', 'declar', 'inform', 'present', 'entreg',
         ]
-        strong_neg = [
-            'veto', 'prohibici', 'denuncia', 'sanci', 'fraude',
-            'crisis sanitaria', 'brote de', 'enfermedad avicola',
-            'restricci', 'rechazo', 'devoluci', 'incautaci',
-            'suspensi', 'cierren', 'despido masivo', 'quiebra'
+        # Si la marca es sujeto de verbo positivo → positivo
+        pos_actions = [
+            'liderando', 'reconocimiento', 'reconoci', 'premi', 'celebr',
+            'exito', 'fortalec', 'consolid', 'impuls', 'promuev',
+            'inaugur', 'lanz', 'present', 'anunci', 'exporta',
+            'habilit', 'certific', 'ampli', 'duplic', 'creci',
+            'benefici', 'apoy', 'respald', 'destac por'
         ]
-        if any(s in t for s in strong_pos):
+        # Negativo SÓLO si la marca es objeto de crítica/sanción
+        neg_actions = [
+            'denuncia ', 'denunciada', 'sancionada', 'multada', 'investigada',
+            'denuncian a ', 'critican', 'reprochan', 'cuestionan a ',
+            'fraude ', 'corrupci', 'irregularidad en ', 'escándalo de ',
+            'veto ', 'prohibi', 'restricci', 'suspensi de ',
+            'crisis sanitaria', 'brote de ', 'enfermedad avicola'
+        ]
+        # Regla: si la marca aparece como sujeto + acción positiva → positivo
+        marca_present = any(m in t for m in strong_pos)
+        if marca_present and any(a in t for a in pos_actions):
             return "Positivo"
-        if any(s in t for s in strong_neg):
+        # Si hay acción negativa hacia la marca (o su gremio) → negativo
+        if marca_present and any(a in t for a in neg_actions):
             return "Negativo"
+        # Si la marca no aparece como protagonista de nada negativo → Neutro
+        if marca_present and not any(a in t for a in pos_actions):
+            return "Neutro"
+        # Si no hay mención de marca → Neutro (no es positivo ni negativo para la marca)
         return None
 
     async def _clasificar(self, texto, sem):
@@ -2861,7 +2875,11 @@ def run_dossier_logic(sheet, xlsx_bytes=None, cliente="", voceros="", enable_scr
                 scraped = scrape_all_news(url_rows, scrape_cache, pb, ss)
                 n_ok = sum(1 for v in scraped.values() if v)
                 ss.update(label="Scraping: {} noticias scrapeedas".format(n_ok), state="complete")
-            
+
+            # Ensure we have a key for the client summary column
+            scrape_key = "resumen_scraped"
+            scraped_text_key = "texto_scraped"
+
             # Generate client-focused summaries for scraped news
             for row in processed:
                 if row.get("is_duplicate"): continue
@@ -2869,18 +2887,19 @@ def run_dossier_logic(sheet, xlsx_bytes=None, cliente="", voceros="", enable_scr
                 xlsx_row = orig + 2
                 texto = scraped.get(xlsx_row)
                 if texto:
-                    rk = km.get("resumen", "resumen")
                     ck = "rc_" + str(row.get(km.get("idnoticia", ""), ""))
                     if ck in resumenes_cache:
                         summary = resumenes_cache[ck]
                     else:
-                        titulo = str(row.get(km.get("titulo", ""), ""))
-                        medio = str(row.get(km.get("medio", ""), ""))
-                        fecha = str(row.get(km.get("fecha", ""), ""))
+                        titulo = str(row.get(km.get("titulo", "")))
+                        medio = str(row.get(km.get("medio", "")))
+                        fecha = str(row.get(km.get("fecha", "")))
                         summary = generar_resumen_cliente(texto, titulo, medio, fecha, cliente, voceros)
                         if summary: resumenes_cache[ck] = summary
-                    if summary:
-                        row[rk] = summary
+                    # NEVER overwrite the original resume column
+                    # Store scraped text and client summary in separate keys
+                    row[scrape_key] = summary or ""
+                    row[scraped_text_key] = texto
                     scraped_count += 1
             
             if resumenes_cache:
@@ -2918,7 +2937,8 @@ def generate_output_excel(rows, km):
         "Seccion - Programa", "Titulo", "Autor - Conductor", "Nro. Pagina",
         "Dimension", "Duracion - Nro. Caracteres", "CPE", "Audiencia", "Tier",
         "Tono", "Tono IA", "Tema", "Subtema", "Link Nota",
-        "Resumen - Aclaracion", "Link (Streaming - Imagen)", "Menciones - Empresa",
+        "Resumen - Aclaracion", "Resumen Scrapeado", "Texto Completo Scrapeado",
+        "Link (Streaming - Imagen)", "Menciones - Empresa",
         "ID duplicada"
     ]
     NUM = {"ID Noticia", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres", "CPE", "Tier", "Audiencia"}
@@ -2997,10 +3017,13 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode, xlsx_bytes=N
     ta = [r for r in rows if not r.get("is_duplicate")]
     if ta:
         df = pd.DataFrame(ta)
-        df["_txt"] = df.apply(
-            lambda r: texto_para_embedding(str(r.get(km["titulo"], "")), str(r.get(km["resumen"], ""))),
-            axis=1
-        )
+        # Use scraped text when available, otherwise fall back to titulo+resumen
+        def _build_text(r):
+            scraped = r.get("texto_scraped", "")
+            if scraped and len(str(scraped)) > 100:
+                return str(scraped)[:3000]
+            return texto_para_embedding(str(r.get(km["titulo"], "")), str(r.get(km["resumen"], "")))
+        df["_txt"] = df.apply(_build_text, axis=1)
         with st.status("Embeddings...", expanded=True) as s:
             _ = get_embeddings_batch(df["_txt"].tolist())
             s.update(label=f"✓ {get_embedding_cache().stats()}", state="complete")
@@ -3012,7 +3035,7 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode, xlsx_bytes=N
                     st.stop()
             elif "API" in mode:
                 res = await ClasificadorTono(bn, ba).procesar_lote_async(
-                    df["_txt"], pb, df[km["resumen"]], df[km["titulo"]]
+                    df["_txt"], pb, df.get("resumen_scraped", df[km["resumen"]]), df[km["titulo"]]
                 )
             else:
                 res = [{"tono": "N/A"}] * len(ta)
