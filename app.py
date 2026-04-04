@@ -610,53 +610,75 @@ def url_to_direct(url):
     return "http://news2.globalnews.com.co/?accessNewsCode={}|{}|{}&mode=image".format(
         um.group(1), nm.group(1), cm.group(1) if cm else "1")
 
-def scrape_single(direct_url, driver):
-    """Scrapea una noticia con Selenium."""
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+}
+
+def _extract_text_from_html(html: str) -> str:
+    """Extrae texto legible de un HTML de noticia GlobalNews."""
     try:
-        driver.get(direct_url)
-        time.sleep(4)  # Esperar carga Angular
-        body = driver.find_element_by_tag_name("body").text
-        # Extraer entre "Imagen Resumen" y "Nube de palabras"
-        i1 = body.find("Imagen Resumen")
-        if i1 >= 0:
-            body = body[i1+15:]
-        i2 = body.find("Nube de palabras")
-        if i2 >= 0:
-            body = body[:i2]
-        i3 = body.find("ANFENAVI")  # footer
-        if i3 >= 0:
-            body = body[:i3]
-        text = re.sub(r'\s+', ' ', body).strip()
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        # Remover scripts, styles, nav, footer
+        for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            tag.decompose()
+        body_text = soup.get_text(separator="\n")
+        # Limpiar bloques de texto
+        lines = [ln.strip() for ln in body_text.split("\n") if ln.strip()]
+        text = "\n".join(lines)
+        # Intentar extraer entre marcadores conocidos
+        for start_marker in ["Imagen Resumen", "Imagen resumen", "Contenido"]:
+            i1 = text.find(start_marker)
+            if i1 >= 0:
+                text = text[i1 + len(start_marker):]
+                break
+        for end_marker in ["Nube de palabras", "ANFENAVI", "Compartir en"]:
+            i2 = text.find(end_marker)
+            if i2 >= 0:
+                text = text[:i2]
+                break
+        return re.sub(r'\s+', ' ', text).strip()
+    except Exception:
+        # Fallback: regex básico si no hay bs4
+        tags_re = re.compile(r'<[^>]+>')
+        text = tags_re.sub(" ", html)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text if len(text) > 50 else ""
+
+def scrape_single(direct_url: str):
+    """Scrapea una noticia con requests (sin Selenium)."""
+    try:
+        import requests
+        resp = requests.get(direct_url, headers=_HEADERS, timeout=15)
+        resp.raise_for_status()
+        text = _extract_text_from_html(resp.text)
         return text if len(text) > 100 else None
-    except:
+    except Exception:
         return None
 
 def scrape_all_news(urls_data, cache, pbar, pstatus):
-    """Scrape multiples noticias usando selenium."""
-    try:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-    except:
-        return {}
+    """Scrape multiples noticias con requests (no Selenium)."""
     results = {}
     total = len(urls_data)
-    opts = Options(); opts.add_argument("--headless"); opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-    driver = webdriver.Chrome(options=opts)
-    try:
-        for i, (rnum, url, nid) in enumerate(urls_data):
-            pstatus.text("Scraping {}/{}...".format(i+1, total))
-            pbar.progress((i+1)/total)
-            if nid in cache:
-                results[rnum] = cache[nid]; continue
-            du = url_to_direct(url)
-            if not du: results[rnum]=None; continue
-            text = scrape_single(du, driver)
-            if text: results[rnum]=text; cache[nid]=text
-            else: results[rnum]=None
-    finally:
-        driver.quit()
+    for i, (rnum, url, nid) in enumerate(urls_data):
+        pstatus.text("Scraping {}/{}...".format(i + 1, total))
+        pbar.progress((i + 1) / total)
+        if nid in cache:
+            results[rnum] = cache[nid]
+            continue
+        du = url_to_direct(url)
+        if not du:
+            results[rnum] = None
+            continue
+        text = scrape_single(du)
+        if text:
+            results[rnum] = text
+            cache[nid] = text
+        else:
+            results[rnum] = None
     _save_cache(_SCRAPE_CACHE_PATH, cache)
     return results
 
