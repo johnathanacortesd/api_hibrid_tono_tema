@@ -664,7 +664,6 @@ def scrape_all_news(urls_data, cache, pbar, pstatus):
     results = {}
     total = len(urls_data)
 
-    # Resolve cached and to-fetch
     to_fetch = []
     for rnum, url, nid in urls_data:
         if nid in cache:
@@ -680,9 +679,8 @@ def scrape_all_news(urls_data, cache, pbar, pstatus):
         _save_cache(_SCRAPE_CACHE_PATH, cache)
         return results
 
-    # Fetch concurrently
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    completed = 0
+    done_count = len(results)
 
     def _fetch_task(item):
         rnum, du, nid = item
@@ -698,10 +696,9 @@ def scrape_all_news(urls_data, cache, pbar, pstatus):
                 cache[nid] = text
             else:
                 results[rnum] = None
-            completed += 1
-            pct = (len(results) + completed) / max(total, 1)
-            pstatus.text("Scraping {}/{}...".format(completed, len(to_fetch)))
-            pbar.progress(pct)
+            done_count += 1
+            pstatus.text("Scraping {}/{}...".format(done_count - len(results) + sum(1 for r in urls_data if r[2] in cache), total))
+            pbar.progress(min(done_count / max(total, 1), 1.0))
 
     _save_cache(_SCRAPE_CACHE_PATH, cache)
     return results
