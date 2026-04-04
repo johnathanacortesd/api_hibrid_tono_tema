@@ -565,145 +565,6 @@ def _umbrales_adaptativos(n: int) -> dict:
 
 
 # ======================================
-# Web Scraping de GlobalNews
-# ======================================
-_SCRAPE_CACHE_PATH = "/root/.hermes/scraping_cache.json"
-_LLM_RESUMEN_CACHE_PATH = "/root/.hermes/resumen_tono_cache.json"
-
-def _load_cache(path):
-    if os.path.exists(path):
-        try:
-            with open(path) as f: return json.load(f)
-        except: pass
-    return {}
-
-def _save_cache(path, data):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f: json.dump(data, f, ensure_ascii=False)
-    except: pass
-
-def extract_urls_from_xlsx(xlsx_bytes):
-    """Mapea ref(W2, W3...) → URL Validar.aspx desde un xlsx."""
-    zf = zipfile.ZipFile(io.BytesIO(xlsx_bytes))
-    try:
-        rels = zf.read("xl/worksheets/_rels/sheet1.xml.rels").decode("utf-8")
-        root = ET.fromstring(rels)
-        rid2url = {rel.get("Id"): html.unescape(rel.get("Target",""))
-                    for rel in root if "Validar.aspx" in rel.get("Target","")}
-        sheet = zf.read("xl/worksheets/sheet1.xml").decode("utf-8")
-        sroot = ET.fromstring(sheet)
-        ns = {"s":"http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-        rns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-        hl = sroot.find(".//s:hyperlinks", ns)
-        return {ref.get("ref"): rid2url[ref.get(rns+"id")]
-                for ref in hl if ref.get(rns+"id") in rid2url} if hl is not None else {}
-    except:
-        return {}
-
-def url_to_direct(url):
-    """Validar.aspx → news2 directo para scraping."""
-    nm = re.search(r'[?&]n=(\d+)', url)
-    um = re.search(r'[?&]u=([a-f0-9-]+)', url, re.IGNORECASE)
-    cm = re.search(r'[?&]c=(\d+)', url)
-    if not nm or not um: return None
-    return "http://news2.globalnews.com.co/?accessNewsCode={}|{}|{}&mode=image".format(
-        um.group(1), nm.group(1), cm.group(1) if cm else "1")
-
-_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
-}
-
-def _extract_text_from_html(html: str) -> str:
-    """Extrae texto legible de un HTML de noticia GlobalNews."""
-    try:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "html.parser")
-        # Remover scripts, styles, nav, footer
-        for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
-            tag.decompose()
-        body_text = soup.get_text(separator="\n")
-        # Limpiar bloques de texto
-        lines = [ln.strip() for ln in body_text.split("\n") if ln.strip()]
-        text = "\n".join(lines)
-        # Intentar extraer entre marcadores conocidos
-        for start_marker in ["Imagen Resumen", "Imagen resumen", "Contenido"]:
-            i1 = text.find(start_marker)
-            if i1 >= 0:
-                text = text[i1 + len(start_marker):]
-                break
-        for end_marker in ["Nube de palabras", "ANFENAVI", "Compartir en"]:
-            i2 = text.find(end_marker)
-            if i2 >= 0:
-                text = text[:i2]
-                break
-        return re.sub(r'\s+', ' ', text).strip()
-    except Exception:
-        # Fallback: regex básico si no hay bs4
-        tags_re = re.compile(r'<[^>]+>')
-        text = tags_re.sub(" ", html)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text if len(text) > 50 else ""
-
-def scrape_single(direct_url: str):
-    """Scrapea una noticia con requests (sin Selenium)."""
-    try:
-        import requests
-        resp = requests.get(direct_url, headers=_HEADERS, timeout=15)
-        resp.raise_for_status()
-        text = _extract_text_from_html(resp.text)
-        return text if len(text) > 100 else None
-    except Exception:
-        return None
-
-def scrape_all_news(urls_data, cache, pbar, pstatus):
-    """Scrape multiples noticias con requests concurrentes."""
-    results = {}
-    total = len(urls_data)
-
-    to_fetch = []
-    for rnum, url, nid in urls_data:
-        if nid in cache:
-            results[rnum] = cache[nid]
-            continue
-        du = url_to_direct(url)
-        if not du:
-            results[rnum] = None
-            continue
-        to_fetch.append((rnum, du, nid))
-
-    if not to_fetch:
-        _save_cache(_SCRAPE_CACHE_PATH, cache)
-        return results
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    done_count = len(results)
-
-    def _fetch_task(item):
-        rnum, du, nid = item
-        text = scrape_single(du)
-        return rnum, text, nid
-
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        future_map = {pool.submit(_fetch_task, item): item for item in to_fetch}
-        for fut in as_completed(future_map):
-            rnum, text, nid = fut.result()
-            if text:
-                results[rnum] = text
-                cache[nid] = text
-            else:
-                results[rnum] = None
-            done_count += 1
-            pstatus.text("Scraping {}/{}...".format(done_count - len(results) + sum(1 for r in urls_data if r[2] in cache), total))
-            pbar.progress(min(done_count / max(total, 1), 1.0))
-
-    _save_cache(_SCRAPE_CACHE_PATH, cache)
-    return results
-
-# ======================================
 # Caché Global de Embeddings
 # ======================================
 class EmbeddingCache:
@@ -1450,26 +1311,67 @@ class ClasificadorTono:
             return "Positivo"
         if tn >= 2 and tn > tp:
             return "Negativo"
-        if sujeto_pos > sujeto_neg:
-            return "Positivo"
-        if sujeto_neg > sujeto_pos:
-            return "Negativo"
         return None
 
+    def _evaluar_impacto_marca(self, texto):
+        """Evalúa impacto DIRECTO en la marca. Positivo/negativo/neutro sin caer en el tono general."""
+        t = unidecode(texto.lower())
+        marca_noms = [self.marca.lower()] + [a.lower() for a in self.aliases]
+        if not any(m in t for m in marca_noms):
+            return None  # No menciona la marca → neutro (se maneja arriba)
+
+        # NEGATIVO: SOLO si la marca es directamente atacada, sancionada, acusada
+        if any(x in t for x in [
+            'es sancionada', 'es multada', 'es investigada', 'es acusada',
+            'la acusan', 'la denuncian', 'critican a', 'reprochan a', 'cuestionada',
+            'fraude', 'corrupción', 'irregularidades', 'escándalo', 'imputada'
+        ]):
+            return "Negativo"
+
+        # POSITIVO: si la marca es sujeto de algo bueno
+        if any(x in t for x in [
+            'anuncia', 'lanza', 'inaugura', 'presenta', 'celebra',
+            'logra', 'consigue', 'alcanza', 'increment', 'crec',
+            'lider', 'destaca', 'fortalec', 'apoy', 'respald',
+            'reconoc', 'premi', 'gana', 'exito', 'éxito',
+            'producción superior', 'producción récord', 'récord',
+            'mejora', 'beneficia', 'impulsa', 'promuev', 'expansión',
+            'exporta', 'certific', 'habilit', 'abre mercado',
+        ]):
+            return "Positivo"
+
+        # Crisis/alerta del sector donde la marca responde o informa → NO es negativo
+        crisis = ['crisis', 'emergencia', 'desastre', 'alerta', 'riesgo',
+                   'preocup', 'alarma', 'traged', 'zozobra', 'damnif', 'negativo']
+        if any(c in t for c in crisis):
+            respuesta = ['advierte', 'alerta', 'recomienda', 'pide', 'solicita',
+                          'respuesta', 'responde', 'actúa', 'trabaja', 'gestiona',
+                          'informa', 'declara', 'señala', 'aclara']
+            if any(r in t for r in respuesta):
+                return None  # Marca informando → Neutro
+            return None  # Crisis sin acción de marca → Neutro
+
+        return None  # Sin juicio claro → Neutro
+
     async def _llm(self, oraciones, texto):
+        """Fallback LLM: evalúa impacto en la marca, no en la noticia."""
         fragmentos = "\n".join(f"  → {s[:300]}" for s in oraciones[:4])
+        marca = self.marca
+        aliases_str = ', '.join(self.aliases) if self.aliases else 'ninguno'
         prompt = (
-            f"Evalúa el sentimiento EXCLUSIVAMENTE hacia '{self.marca}'"
-            f" (alias: {', '.join(self.aliases) if self.aliases else 'N/A'}) "
-            f"en los fragmentos donde se le menciona.\n"
-            f"REGLAS CLAVE:\n"
-            f"- Evalúa SOLO cómo se habla de '{self.marca}', NO el tono general de la noticia.\n"
-            f"- Si la noticia es negativa pero '{self.marca}' es mencionada positivamente → Positivo.\n"
-            f"- Si la noticia es positiva pero '{self.marca}' es criticada → Negativo.\n"
-            f"- Si '{self.marca}' solo se menciona de paso sin juicio → Neutro.\n"
-            f"- Competidor negativo NO hace a '{self.marca}' positivo → Neutro.\n"
-            f"FRAGMENTOS CON MENCIÓN:\n{fragmentos}\n"
-            f'JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
+            f"Eres analista de reputación corporativa. Evalúa el impacto DIRECTO sobre '{marca}' "
+            f"(alias: {aliases_str}).\n\n"
+            f"REGLAS ESENCIALES:\n"
+            f"1. NO evalúes el tono general de la noticia. Evalúa SOLO cómo sale {marca}.\n"
+            f"2. POSITIVO: {marca} logra, anuncia, crece, es reconocida, produce más, "
+            f"abre mercados, lidera. Ej: 'Producción superior' = Positivo si menciona a {marca}.\n"
+            f"3. NEGATIVO: {marca} es criticada, sancionada, investigada, acusada de fraude/corrupción.\n"
+            f"4. NEUTRO: {marca} solo se menciona sin juicio, advierte sobre crisis del sector, "
+            f"la noticia es del sector sin mencionar a {marca}, "
+            f"o la noticia positiva es del sector pero {marca} no es protagonista.\n"
+            f"5. Crisis, alertas, riesgos del sector → Neutro para {marca} salvo que sea culpada.\n\n"
+            f"FRAGMENTOS:\n{fragmentos}\n\n"
+            f'Responde SOLO con JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
         )
         try:
             resp = await acall_with_retries(
@@ -1491,21 +1393,18 @@ class ClasificadorTono:
 
     async def _clasificar(self, texto, sem):
         async with sem:
+            # Primero verificar override por impacto directo en marca
+            override = self._evaluar_impacto_marca(texto)
+            if override:
+                return {"tono": override}
+            
             om = self._extraer_oraciones_marca(texto)
             if not om:
                 return {"tono": "Neutro"}
             r = self._reglas(om)
             if r:
                 return {"tono": r}
-            # Fallback: override para textos con evidencia clara positiva
-            full_text = unidecode(texto.lower())
-            strong_pos = [
-                'liderando', 'reconocimiento', 'reconocido', 'premiado', 'celebra',
-                'exito', 'éxito', 'mejores resultados', 'sostenibilidad', 'innovador',
-                'refuerza', 'impulso', 'impulsa', 'destaca por'
-            ]
-            if any(sp in full_text for sp in strong_pos):
-                return {"tono": "Positivo"}
+            # Fallback a LLM
             return await self._llm(om, texto)
 
     async def procesar_lote_async(self, textos, pbar, resumenes, titulos):
@@ -2809,63 +2708,6 @@ def run_dossier_logic(sheet, xlsx_bytes=None, cliente="", voceros="", enable_scr
         if row["is_duplicate"]:
             row.update({km["tonoiai"]: "Duplicada", km["tema"]: "-", km["subtema"]: "-"})
     
-    # ── Scraping opcional ──
-    scraped_count = 0
-    if enable_scraping and xlsx_bytes and cliente:
-        scrape_cache = _load_cache(_SCRAPE_CACHE_PATH)
-        resumenes_cache = _load_cache(_LLM_RESUMEN_CACHE_PATH)
-        urls_map = extract_urls_from_xlsx(xlsx_bytes)
-        
-        # Map row numbers to URLs for column W
-        url_rows = []
-        ref_to_xlsx_row = {}
-        ws_xls = sheet
-        for ref, url in urls_map.items():
-            cm = re.match(r'([A-Z]+)(\d+)', ref)
-            if cm and cm.group(1) == "W":
-                ref_to_xlsx_row[int(cm.group(2))] = url
-        
-        # Build scrape list: match processed rows to URLs
-        for row in processed:
-            if row.get("is_duplicate"): continue
-            orig = row.get("original_index")
-            xlsx_row = orig + 2  # 1-indexed + header
-            if xlsx_row in ref_to_xlsx_row:
-                nid = row.get(km.get("idnoticia", ""), "")
-                url = ref_to_xlsx_row[xlsx_row]
-                url_rows.append((xlsx_row, url, str(nid)))
-        
-        if url_rows:
-            with st.status("Scraping de noticias...", expanded=True) as ss:
-                pb = st.progress(0)
-                scraped = scrape_all_news(url_rows, scrape_cache, pb, ss)
-                n_ok = sum(1 for v in scraped.values() if v)
-                ss.update(label="Scraping: {} noticias scrapeedas".format(n_ok), state="complete")
-            
-            # Generate client-focused summaries for scraped news
-            for row in processed:
-                if row.get("is_duplicate"): continue
-                orig = row.get("original_index")
-                xlsx_row = orig + 2
-                texto = scraped.get(xlsx_row)
-                if texto:
-                    rk = km.get("resumen", "resumen")
-                    ck = "rc_" + str(row.get(km.get("idnoticia", ""), ""))
-                    if ck in resumenes_cache:
-                        summary = resumenes_cache[ck]
-                    else:
-                        titulo = str(row.get(km.get("titulo", ""), ""))
-                        medio = str(row.get(km.get("medio", ""), ""))
-                        fecha = str(row.get(km.get("fecha", ""), ""))
-                        summary = generar_resumen_cliente(texto, titulo, medio, fecha, cliente, voceros)
-                        if summary: resumenes_cache[ck] = summary
-                    if summary:
-                        row[rk] = summary
-                    scraped_count += 1
-            
-            if resumenes_cache:
-                _save_cache(_LLM_RESUMEN_CACHE_PATH, resumenes_cache)
-    
     return processed, km
 
 
@@ -3179,12 +3021,6 @@ def main():
                     ["API de OpenAI", "Híbrido (PKL + API)", "Solo Modelos PKL"],
                     index=0, key="mode"
                 )
-                enable_sc = st.checkbox("Scrapear texto de noticias (GlobalNews)", key="enable_scraping",
-                                       help="Extrae el texto real de cada noticia para generar resumen enfocado")
-                if enable_sc:
-                    st.text_input(
-                        "Voceros (sep. por ;) — para resaltar en resumen",
-                        key="voceros_scrape", placeholder="Ej: Gonzalo Moreno;Juan Perez")
 
             tpkl, epkl = None, None
             if "PKL" in mode:
@@ -3235,14 +3071,9 @@ def main():
                         cur_mode = st.session_state.get("mode", "API de OpenAI")
                         cur_tpkl = st.session_state.get("tpkl")
                         cur_epkl = st.session_state.get("epkl")
-                        # Leer bytes para scraping
-                        f1.seek(0); xlsx_bytes = f1.read(); f1.seek(0)
-                        enable_scrape = st.session_state.get("enable_scraping", False)
-                        voceros_scrape = st.session_state.get("voceros_scrape", "")
                         asyncio.run(run_full_process_async(f1, bn, al, cur_tpkl, cur_epkl, cur_mode,
-                                                         xlsx_bytes=xlsx_bytes if enable_scrape else None,
-                                                         cliente=bn, voceros=voceros_scrape,
-                                                         enable_scraping=enable_scrape))
+                                                         xlsx_bytes=None, cliente="", voceros="",
+                                                         enable_scraping=False))
                         st.rerun()
         else:
             total = st.session_state.total_rows
