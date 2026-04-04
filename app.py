@@ -660,12 +660,13 @@ def scrape_single(direct_url: str):
         return None
 
 def scrape_all_news(urls_data, cache, pbar, pstatus):
-    """Scrape multiples noticias con requests (no Selenium)."""
+    """Scrape multiples noticias con requests concurrentes."""
     results = {}
     total = len(urls_data)
-    for i, (rnum, url, nid) in enumerate(urls_data):
-        pstatus.text("Scraping {}/{}...".format(i + 1, total))
-        pbar.progress((i + 1) / total)
+
+    # Resolve cached and to-fetch
+    to_fetch = []
+    for rnum, url, nid in urls_data:
         if nid in cache:
             results[rnum] = cache[nid]
             continue
@@ -673,12 +674,35 @@ def scrape_all_news(urls_data, cache, pbar, pstatus):
         if not du:
             results[rnum] = None
             continue
+        to_fetch.append((rnum, du, nid))
+
+    if not to_fetch:
+        _save_cache(_SCRAPE_CACHE_PATH, cache)
+        return results
+
+    # Fetch concurrently
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    completed = 0
+
+    def _fetch_task(item):
+        rnum, du, nid = item
         text = scrape_single(du)
-        if text:
-            results[rnum] = text
-            cache[nid] = text
-        else:
-            results[rnum] = None
+        return rnum, text, nid
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        future_map = {pool.submit(_fetch_task, item): item for item in to_fetch}
+        for fut in as_completed(future_map):
+            rnum, text, nid = fut.result()
+            if text:
+                results[rnum] = text
+                cache[nid] = text
+            else:
+                results[rnum] = None
+            completed += 1
+            pct = (len(results) + completed) / max(total, 1)
+            pstatus.text("Scraping {}/{}...".format(completed, len(to_fetch)))
+            pbar.progress(pct)
+
     _save_cache(_SCRAPE_CACHE_PATH, cache)
     return results
 
@@ -1387,7 +1411,7 @@ class ClasificadorTono:
             contexto, re.IGNORECASE
         ))
         verbo_pos = bool(re.search(
-            r'\b(lanz|inaugur|estren|anunc|cre[ao]|construy|abr[ei]|inici|implement|desarroll|inviert|expand|fortalec|mejor|benefici|gan|crec|lider|aliad|celebr|reconoc|premi|solucion[a]|resuelv|atiend|respond|present[a]|firm[a]|entreg[a]|inici[a])\b',
+            r'\b(lanz|inaugur|estren|anunc|cre[ao]|construy|abr[ei]|inici|implement|desarroll|inviert|expand|fortalec|mejor|benefici|gan|crec|lidere?|lider[ao]s?|lideran[do]?|lidere?mos|aliad|celebr|reconoc|premi|solucion[ao]|resuelv|atiend|respond|present[a]|firm[a]|entreg[a]|inici[a]|refuer[a-z]*|consolid[a-z]*|destac[a-z]*|avanz[a-z]*|promuev[a-z]*|impuls[a-z]*)\b',
             contexto, re.IGNORECASE
         ))
         verbo_neg = bool(re.search(
@@ -1472,10 +1496,19 @@ class ClasificadorTono:
         async with sem:
             om = self._extraer_oraciones_marca(texto)
             if not om:
-                return {"tono": "Neutro"}
+                return {\"tono\": \"Neutro\"}
             r = self._reglas(om)
             if r:
-                return {"tono": r}
+                return {\"tono\": r}
+            # Fallback: override para textos con evidencia clara positiva
+            full_text = unidecode(texto.lower())
+            strong_pos = [
+                'liderando', 'reconocimiento', 'reconocido', 'premiado', 'celebra',
+                'exito', 'éxito', 'mejores resultados', 'sostenibilidad,', 'innovador',
+                'refuerza', 'impulso', 'impulsa', 'destaca por'
+            ]
+            if any(sp in full_text for sp in strong_pos):
+                return {\"tono\": \"Positivo\"}
             return await self._llm(om, texto)
 
     async def procesar_lote_async(self, textos, pbar, resumenes, titulos):
