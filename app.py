@@ -1496,19 +1496,19 @@ class ClasificadorTono:
         async with sem:
             om = self._extraer_oraciones_marca(texto)
             if not om:
-                return {\"tono\": \"Neutro\"}
+                return {"tono": "Neutro"}
             r = self._reglas(om)
             if r:
-                return {\"tono\": r}
+                return {"tono": r}
             # Fallback: override para textos con evidencia clara positiva
             full_text = unidecode(texto.lower())
             strong_pos = [
                 'liderando', 'reconocimiento', 'reconocido', 'premiado', 'celebra',
-                'exito', 'éxito', 'mejores resultados', 'sostenibilidad,', 'innovador',
+                'exito', 'éxito', 'mejores resultados', 'sostenibilidad', 'innovador',
                 'refuerza', 'impulso', 'impulsa', 'destaca por'
             ]
             if any(sp in full_text for sp in strong_pos):
-                return {\"tono\": \"Positivo\"}
+                return {"tono": "Positivo"}
             return await self._llm(om, texto)
 
     async def procesar_lote_async(self, textos, pbar, resumenes, titulos):
