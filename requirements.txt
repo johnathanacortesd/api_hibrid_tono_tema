@@ -10,3 +10,5 @@ joblib
 bertopic
 xgboost==2.0.3
 selenium>=4.15.0
+requests
+beautifulsoup4
