@@ -1224,29 +1224,57 @@ class ClasificadorTono:
         bf = self.brand_re.search(on)
         if not bf:
             return 0, 0
+        contexto = on[max(0, bf.start() - 80):bf.end() + 80]
         neg_near = bool(re.search(
-            r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni)\b',
-            on[max(0, bf.start() - 40):bf.end() + 40], re.IGNORECASE
+            r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni|denuncia|demanda|sanciona|multa|critica|ataca|fraude|corrupcion|irregularidad)\b',
+            contexto, re.IGNORECASE
+        ))
+        verbo_pos = bool(re.search(
+            r'\b(lanz|inaugur|estren|anunc|cre[ao]|construy|abr[ei]|inici|implement|desarroll|inviert|expand|fortalec|mejor|benefici|gan|crec|lider|aliad|celebr|reconoc|premi|solucion[a]|resuelv|atiend|respond|present[a]|firm[a]|entreg[a]|inici[a])\b',
+            contexto, re.IGNORECASE
+        ))
+        verbo_neg = bool(re.search(
+            r'\b(cae|perdi|fall|suspend|cerr|renunc|huelg|ataqu|hacke|boicot|reclam|perdid|deficit|conflict|disput|rechaz|proble|riesg|traged|cris|emerg|desastr|inundac|desliz|damnif|deterior|irregular|corrupc|evas|sancion|multa|denunc|demand|investig|critic)\b',
+            contexto, re.IGNORECASE
         ))
         if CRISIS_KEYWORDS.search(on) and RESPONSE_VERBS.search(on):
             if self._es_sujeto(oracion):
                 return 3, 0
         ph = sum(1 for p in POS_PATTERNS if p.search(on))
         nh = sum(1 for p in NEG_PATTERNS if p.search(on))
-        w = 1.0 if self._es_sujeto(oracion) else 0.3
+        if verbo_pos:
+            ph += 2
+        if verbo_neg:
+            nh += 2
+        w = 1.2 if self._es_sujeto(oracion) else 0.3
         if neg_near:
-            return int(nh * w), int(ph * w)
+            return int(nh * w * 1.3), int(ph * w)
         return int(ph * w), int(nh * w)
 
     def _reglas(self, oraciones):
         tp, tn = 0, 0
+        sujeto_pos = 0
+        sujeto_neg = 0
         for s in oraciones:
             p, n = self._sentimiento_oracion(s)
             tp += p
             tn += n
-        if tp >= 2 and tp > tn * 2:
+            if self._es_sujeto(s):
+                if p > n:
+                    sujeto_pos += 1
+                elif n > p:
+                    sujeto_neg += 1
+        if sujeto_pos >= 1 and sujeto_neg == 0:
             return "Positivo"
-        if tn >= 2 and tn > tp * 2:
+        if sujeto_neg >= 1 and sujeto_pos == 0:
+            return "Negativo"
+        if tp >= 2 and tp > tn:
+            return "Positivo"
+        if tn >= 2 and tn > tp:
+            return "Negativo"
+        if sujeto_pos > sujeto_neg:
+            return "Positivo"
+        if sujeto_neg > sujeto_pos:
             return "Negativo"
         return None
 
@@ -1932,21 +1960,16 @@ class ClasificadorSubtema:
             subtemas, textos_por_sub2, self.marca, self.aliases, u['fusion_subtemas']
         )
 
-        # ── Coherencia final: forzar fusion de subtemas equivalentes ──
-        # Ejemplo concreto a evitar:
-        #   "Dipping de tendencias gastronomicas" vs
-        #   "Tendencia global en sabores para pollo"
-        # Mismo evento, labels distintos de LLM → fusionar por similitud.
+        # ── Coherencia final: fusionar subtemas equivalentes ──
+        # Ej: "Dipping de tendencias gastronomicas" vs
+        #     "Tendencia global en sabores para pollo" → MISMO subtema
         pbar.progress(0.98, "Coherencia final de subtemas...")
         orig_unicos = list(dict.fromkeys(subtemas))
         if len(orig_unicos) >= 2:
-            # Mapping: cada label original → su canonical (inicia en si mismo)
             cano_map: Dict[str, str] = {s: s for s in orig_unicos}
-
             emb_subs = get_embeddings_batch(orig_unicos)
             valid_pairs = [
-                (i, emb_subs[i])
-                for i in range(len(orig_unicos))
+                (i, emb_subs[i]) for i in range(len(orig_unicos))
                 if emb_subs[i] is not None
             ]
             if len(valid_pairs) >= 2:
@@ -1954,14 +1977,12 @@ class ClasificadorSubtema:
                 sim_subs = cosine_similarity(np.array(v_emb))
                 for pi in range(len(v_idx)):
                     for pj in range(pi + 1, len(v_idx)):
-                        oi = v_idx[pi]
-                        oj = v_idx[pj]
-                        cano_i = cano_map[orig_unicos[oi]]
-                        cano_j = cano_map[orig_unicos[oj]]
-                        if cano_i == cano_j:
+                        oi, oj = v_idx[pi], v_idx[pj]
+                        ci, cj = cano_map[orig_unicos[oi]], cano_map[orig_unicos[oj]]
+                        if ci == cj:
                             continue
                         merged = False
-                        # Criterio 1: embeddings coseno >= 0.87
+                        # Criterio 1: embedding coseno entre labels >= 0.87
                         if sim_subs[pi][pj] >= 0.87:
                             merged = True
                         # Criterio 2: Jaccard tokens >= 0.45
@@ -1969,30 +1990,25 @@ class ClasificadorSubtema:
                             ti = set(string_norm_label(orig_unicos[oi]).split())
                             tj = set(string_norm_label(orig_unicos[oj]).split())
                             if len(ti) >= 2 and len(tj) >= 2:
-                                jac = len(ti & tj) / len(ti | tj)
-                                if jac >= 0.45:
+                                if len(ti & tj) / len(ti | tj) >= 0.45:
                                     merged = True
                         if merged:
-                            # El mas frecuente gana
-                            freq_i = sum(1 for s in subtemas if cano_map.get(s) == cano_i)
-                            freq_j = sum(1 for s in subtemas if cano_map.get(s) == cano_j)
-                            winner = cano_i if freq_i >= freq_j else cano_j
-                            loser = cano_j if winner == cano_i else cano_i
+                            fi = sum(1 for ss in subtemas if cano_map.get(ss) == ci)
+                            fj = sum(1 for ss in subtemas if cano_map.get(ss) == cj)
+                            winner = ci if fi >= fj else cj
+                            loser = cj if winner == ci else ci
                             for k in cano_map:
                                 if cano_map[k] == loser:
                                     cano_map[k] = winner
-
-            # Aplicar mapeo
             n_antes = len(set(subtemas))
             subtemas = [cano_map.get(s, s) for s in subtemas]
             n_despues = len(set(subtemas))
             if n_antes != n_despues:
                 st.caption(
-                    f"ℹ️ Coherencia final: {n_antes} subtemas → {n_despues} "
-                    f"({n_antes - n_despues} fusionado(s) por equivalencia)"
+                    f"ℹ️ Coherencia final: {n_antes} → {n_despues}"
+                    f" ({n_antes - n_despues} fusionado(s))"
                 )
 
-        # ── dedup final + capitalización ──
         subtemas = dedup_labels(subtemas, u['dedup_label'])
         subtemas = [capitalizar_etiqueta(s) for s in subtemas]
         nf = len(set(subtemas))
