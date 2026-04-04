@@ -1489,23 +1489,43 @@ class ClasificadorTono:
         except:
             return {"tono": "Neutro"}
 
+    def _check_override(self, texto):
+        """Override de tono cuando el texto tiene señales obvias, aunque la marca no aparezca."""
+        t = unidecode(texto.lower())
+        strong_pos = [
+            'liderando', 'reconocimiento', 'reconocido', 'premiado', 'celebra',
+            'exito', 'exit', 'mejores resultados', 'sostenibilidad', 'innovador',
+            'refuerza', 'impulso', 'impulsa', 'destaca',
+            'apertura de mercado', 'exportaciones', 'exportar', 'anunci',
+            'nuevo mercado', 'acuerdo comercial', 'expansi', 'certificaci',
+            'aprobaci', 'habilitaci', 'ingreso a mercado', 'posicionamiento',
+            'aumento de ventas', 'crecimiento de', 'nuevos mercados', 'aliados',
+            'respaldo', 'apoyo institucional', 'fortalece', 'consolida'
+        ]
+        strong_neg = [
+            'veto', 'prohibici', 'denuncia', 'sanci', 'fraude',
+            'crisis sanitaria', 'brote de', 'enfermedad avicola',
+            'restricci', 'rechazo', 'devoluci', 'incautaci',
+            'suspensi', 'cierren', 'despido masivo', 'quiebra'
+        ]
+        if any(s in t for s in strong_pos):
+            return "Positivo"
+        if any(s in t for s in strong_neg):
+            return "Negativo"
+        return None
+
     async def _clasificar(self, texto, sem):
         async with sem:
             om = self._extraer_oraciones_marca(texto)
             if not om:
-                return {"tono": "Neutro"}
+                r = self._check_override(texto)
+                return {"tono": r if r else "Neutro"}
             r = self._reglas(om)
             if r:
                 return {"tono": r}
-            # Fallback: override para textos con evidencia clara positiva
-            full_text = unidecode(texto.lower())
-            strong_pos = [
-                'liderando', 'reconocimiento', 'reconocido', 'premiado', 'celebra',
-                'exito', 'éxito', 'mejores resultados', 'sostenibilidad', 'innovador',
-                'refuerza', 'impulso', 'impulsa', 'destaca por'
-            ]
-            if any(sp in full_text for sp in strong_pos):
-                return {"tono": "Positivo"}
+            r = self._check_override(texto)
+            if r:
+                return {"tono": r}
             return await self._llm(om, texto)
 
     async def procesar_lote_async(self, textos, pbar, resumenes, titulos):
