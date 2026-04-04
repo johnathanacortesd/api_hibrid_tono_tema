@@ -2946,6 +2946,12 @@ def generate_output_excel(rows, km):
     ls = NamedStyle(name="HL", font=Font(color="0000FF", underline="single"))
     if "HL" not in wb.style_names:
         wb.add_named_style(ls)
+    # Extra column mappings not in km
+    EXTRA_COL_MAP = {
+        "resumenscrapeado": "resumen_scraped",
+        "textocompletoscrapeado": "texto_scraped",
+    }
+
     for row in rows:
         tk = km.get("titulo")
         if tk and tk in row:
@@ -2955,7 +2961,9 @@ def generate_output_excel(rows, km):
             row[rk] = corregir_texto(row.get(rk))
         out, links = [], {}
         for ci, h in enumerate(ORDER, 1):
-            dk  = km.get(norm_key(h), norm_key(h))
+            nk_h = norm_key(h)
+            # Try km first, then extra columns
+            dk = km.get(nk_h, EXTRA_COL_MAP.get(nk_h, nk_h))
             val = row.get(dk)
             cv  = None
             if h in NUM:
