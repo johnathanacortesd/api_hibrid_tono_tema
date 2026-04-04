@@ -34,7 +34,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-MODEL_CLASIF = "gpt-4o-mini"
+MODEL_CLASIF = "gpt-4.1-nano-2025-04-14"
 CACHE_SCRAPING = "/root/.hermes/scraping_cache.json"
 
 # ======================================
