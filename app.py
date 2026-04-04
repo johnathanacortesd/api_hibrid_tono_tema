@@ -24,11 +24,6 @@ from typing import List, Dict, Tuple, Optional, Any
 import joblib
 import gc
 import requests
-import os
-import zipfile
-import xml.etree.ElementTree as ET
-import html
-import hashlib
 
 # ======================================
 # Configuracion general
@@ -565,145 +560,6 @@ def _umbrales_adaptativos(n: int) -> dict:
 
 
 # ======================================
-# Web Scraping de GlobalNews
-# ======================================
-_SCRAPE_CACHE_PATH = "/root/.hermes/scraping_cache.json"
-_LLM_RESUMEN_CACHE_PATH = "/root/.hermes/resumen_tono_cache.json"
-
-def _load_cache(path):
-    if os.path.exists(path):
-        try:
-            with open(path) as f: return json.load(f)
-        except: pass
-    return {}
-
-def _save_cache(path, data):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f: json.dump(data, f, ensure_ascii=False)
-    except: pass
-
-def extract_urls_from_xlsx(xlsx_bytes):
-    """Mapea ref(W2, W3...) → URL Validar.aspx desde un xlsx."""
-    zf = zipfile.ZipFile(io.BytesIO(xlsx_bytes))
-    try:
-        rels = zf.read("xl/worksheets/_rels/sheet1.xml.rels").decode("utf-8")
-        root = ET.fromstring(rels)
-        rid2url = {rel.get("Id"): html.unescape(rel.get("Target",""))
-                    for rel in root if "Validar.aspx" in rel.get("Target","")}
-        sheet = zf.read("xl/worksheets/sheet1.xml").decode("utf-8")
-        sroot = ET.fromstring(sheet)
-        ns = {"s":"http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-        rns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-        hl = sroot.find(".//s:hyperlinks", ns)
-        return {ref.get("ref"): rid2url[ref.get(rns+"id")]
-                for ref in hl if ref.get(rns+"id") in rid2url} if hl is not None else {}
-    except:
-        return {}
-
-def url_to_direct(url):
-    """Validar.aspx → news2 directo para scraping."""
-    nm = re.search(r'[?&]n=(\d+)', url)
-    um = re.search(r'[?&]u=([a-f0-9-]+)', url, re.IGNORECASE)
-    cm = re.search(r'[?&]c=(\d+)', url)
-    if not nm or not um: return None
-    return "http://news2.globalnews.com.co/?accessNewsCode={}|{}|{}&mode=image".format(
-        um.group(1), nm.group(1), cm.group(1) if cm else "1")
-
-_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
-}
-
-def _extract_text_from_html(html: str) -> str:
-    """Extrae texto legible de un HTML de noticia GlobalNews."""
-    try:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "html.parser")
-        # Remover scripts, styles, nav, footer
-        for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
-            tag.decompose()
-        body_text = soup.get_text(separator="\n")
-        # Limpiar bloques de texto
-        lines = [ln.strip() for ln in body_text.split("\n") if ln.strip()]
-        text = "\n".join(lines)
-        # Intentar extraer entre marcadores conocidos
-        for start_marker in ["Imagen Resumen", "Imagen resumen", "Contenido"]:
-            i1 = text.find(start_marker)
-            if i1 >= 0:
-                text = text[i1 + len(start_marker):]
-                break
-        for end_marker in ["Nube de palabras", "ANFENAVI", "Compartir en"]:
-            i2 = text.find(end_marker)
-            if i2 >= 0:
-                text = text[:i2]
-                break
-        return re.sub(r'\s+', ' ', text).strip()
-    except Exception:
-        # Fallback: regex básico si no hay bs4
-        tags_re = re.compile(r'<[^>]+>')
-        text = tags_re.sub(" ", html)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text if len(text) > 50 else ""
-
-def scrape_single(direct_url: str):
-    """Scrapea una noticia con requests (sin Selenium)."""
-    try:
-        import requests
-        resp = requests.get(direct_url, headers=_HEADERS, timeout=15)
-        resp.raise_for_status()
-        text = _extract_text_from_html(resp.text)
-        return text if len(text) > 100 else None
-    except Exception:
-        return None
-
-def scrape_all_news(urls_data, cache, pbar, pstatus):
-    """Scrape multiples noticias con requests concurrentes."""
-    results = {}
-    total = len(urls_data)
-
-    to_fetch = []
-    for rnum, url, nid in urls_data:
-        if nid in cache:
-            results[rnum] = cache[nid]
-            continue
-        du = url_to_direct(url)
-        if not du:
-            results[rnum] = None
-            continue
-        to_fetch.append((rnum, du, nid))
-
-    if not to_fetch:
-        _save_cache(_SCRAPE_CACHE_PATH, cache)
-        return results
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    done_count = len(results)
-
-    def _fetch_task(item):
-        rnum, du, nid = item
-        text = scrape_single(du)
-        return rnum, text, nid
-
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        future_map = {pool.submit(_fetch_task, item): item for item in to_fetch}
-        for fut in as_completed(future_map):
-            rnum, text, nid = fut.result()
-            if text:
-                results[rnum] = text
-                cache[nid] = text
-            else:
-                results[rnum] = None
-            done_count += 1
-            pstatus.text("Scraping {}/{}...".format(done_count - len(results) + sum(1 for r in urls_data if r[2] in cache), total))
-            pbar.progress(min(done_count / max(total, 1), 1.0))
-
-    _save_cache(_SCRAPE_CACHE_PATH, cache)
-    return results
-
-# ======================================
 # Caché Global de Embeddings
 # ======================================
 class EmbeddingCache:
@@ -981,40 +837,6 @@ def normalizar_tipo_medio(tipo_raw):
         "online": "Internet", "internet": "Internet",
         "digital": "Internet", "web": "Internet"
     }.get(t, str(tipo_raw).strip().title() or "Otro")
-
-
-def generar_resumen_cliente(texto, titulo, medio, fecha, cliente, voceros=""):
-    """Genera un resumen enfocado al cliente sobre el texto scrapeado de la noticia."""
-    prompt_sistema = (
-        u"Eres analista de medios para {cliente}. "
-        u"Analiza la noticia y genera UN resumen enfocado al cliente como audiencia.\n\n"
-        u"Responde SOLO con JSON: "
-        u'{{"resumen_cliente": "2-3 parrafos con datos, voceros, cifras e impacto para {cliente} y el sector avicola. '
-        u'Si la noticia menciona a {cliente} o voceros, destaca su perspectiva. '
-        u'Si no, analiza el impacto POTENCIAL para el sector."}}'
-    ).format(cliente=cliente)
-
-    prompt_usuario = (
-        u"CLIENTE: {cliente}\nVOCEROS: {voceros}\nTITULAR: {titulo}\nMEDIO: {medio}\nFECHA: {fecha}\n\n"
-        u"TEXTO:\n{texto}"
-    ).format(cliente=cliente, voceros=voceros or "No especificados",
-             titulo=titulo or "", medio=medio or "", fecha=fecha or "", texto=texto[:4500])
-
-    try:
-        resp = call_with_retries(
-            openai.ChatCompletion.create,
-            model=OPENAI_MODEL_CLASIFICACION,
-            messages=[{"role":"system","content":prompt_sistema},{"role":"user","content":prompt_usuario}],
-            temperature=0.2, max_tokens=1000,
-            response_format={"type":"json_object"}
-        )
-        u = resp.get('usage', {}) if isinstance(resp, dict) else getattr(resp, 'usage', None) or {}
-        if u:
-            st.session_state['tokens_input'] += (u.get('prompt_tokens') if isinstance(u, dict) else getattr(u, 'prompt_tokens', 0)) or 0
-            st.session_state['tokens_output'] += (u.get('completion_tokens') if isinstance(u, dict) else getattr(u, 'completion_tokens', 0)) or 0
-        return json.loads(resp.choices[0].message.content).get("resumen_cliente", "")
-    except:
-        return ""
 
 
 def texto_para_embedding(titulo, resumen, max_len=1800):
@@ -1402,57 +1224,29 @@ class ClasificadorTono:
         bf = self.brand_re.search(on)
         if not bf:
             return 0, 0
-        contexto = on[max(0, bf.start() - 80):bf.end() + 80]
         neg_near = bool(re.search(
-            r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni|denuncia|demanda|sanciona|multa|critica|ataca|fraude|corrupcion|irregularidad)\b',
-            contexto, re.IGNORECASE
-        ))
-        verbo_pos = bool(re.search(
-            r'\b(lanz|inaugur|estren|anunc|cre[ao]|construy|abr[ei]|inici|implement|desarroll|inviert|expand|fortalec|mejor|benefici|gan|crec|lidere?|lider[ao]s?|lideran[do]?|lidere?mos|aliad|celebr|reconoc|premi|solucion[ao]|resuelv|atiend|respond|present[a]|firm[a]|entreg[a]|inici[a]|refuer[a-z]*|consolid[a-z]*|destac[a-z]*|avanz[a-z]*|promuev[a-z]*|impuls[a-z]*)\b',
-            contexto, re.IGNORECASE
-        ))
-        verbo_neg = bool(re.search(
-            r'\b(cae|perdi|fall|suspend|cerr|renunc|huelg|ataqu|hacke|boicot|reclam|perdid|deficit|conflict|disput|rechaz|proble|riesg|traged|cris|emerg|desastr|inundac|desliz|damnif|deterior|irregular|corrupc|evas|sancion|multa|denunc|demand|investig|critic)\b',
-            contexto, re.IGNORECASE
+            r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni)\b',
+            on[max(0, bf.start() - 40):bf.end() + 40], re.IGNORECASE
         ))
         if CRISIS_KEYWORDS.search(on) and RESPONSE_VERBS.search(on):
             if self._es_sujeto(oracion):
                 return 3, 0
         ph = sum(1 for p in POS_PATTERNS if p.search(on))
         nh = sum(1 for p in NEG_PATTERNS if p.search(on))
-        if verbo_pos:
-            ph += 2
-        if verbo_neg:
-            nh += 2
-        w = 1.2 if self._es_sujeto(oracion) else 0.3
+        w = 1.0 if self._es_sujeto(oracion) else 0.3
         if neg_near:
-            return int(nh * w * 1.3), int(ph * w)
+            return int(nh * w), int(ph * w)
         return int(ph * w), int(nh * w)
 
     def _reglas(self, oraciones):
         tp, tn = 0, 0
-        sujeto_pos = 0
-        sujeto_neg = 0
         for s in oraciones:
             p, n = self._sentimiento_oracion(s)
             tp += p
             tn += n
-            if self._es_sujeto(s):
-                if p > n:
-                    sujeto_pos += 1
-                elif n > p:
-                    sujeto_neg += 1
-        if sujeto_pos >= 1 and sujeto_neg == 0:
+        if tp >= 2 and tp > tn * 2:
             return "Positivo"
-        if sujeto_neg >= 1 and sujeto_pos == 0:
-            return "Negativo"
-        if tp >= 2 and tp > tn:
-            return "Positivo"
-        if tn >= 2 and tn > tp:
-            return "Negativo"
-        if sujeto_pos > sujeto_neg:
-            return "Positivo"
-        if sujeto_neg > sujeto_pos:
+        if tn >= 2 and tn > tp * 2:
             return "Negativo"
         return None
 
@@ -1489,55 +1283,12 @@ class ClasificadorTono:
         except:
             return {"tono": "Neutro"}
 
-    def _check_override(self, texto):
-        """Override de tono: ¿la marca está siendo criticada o elogiada directamente?
-        NO califica el tono general de la noticia, sino el impacto en la marca."""
-        t = unidecode(texto.lower())
-        # Positivo SÓLO si la marca/voceros es sujeto de acción positiva
-        strong_pos = [
-            'la federaci', 'fenavi', 'los avicultores', 'el gremio',
-            'voceros de', 'voceros de fenavi', 'según fenavi', 'según la federaci',
-            'anunci', 'declar', 'inform', 'present', 'entreg',
-        ]
-        # Si la marca es sujeto de verbo positivo → positivo
-        pos_actions = [
-            'liderando', 'reconocimiento', 'reconoci', 'premi', 'celebr',
-            'exito', 'fortalec', 'consolid', 'impuls', 'promuev',
-            'inaugur', 'lanz', 'present', 'anunci', 'exporta',
-            'habilit', 'certific', 'ampli', 'duplic', 'creci',
-            'benefici', 'apoy', 'respald', 'destac por'
-        ]
-        # Negativo SÓLO si la marca es objeto de crítica/sanción
-        neg_actions = [
-            'denuncia ', 'denunciada', 'sancionada', 'multada', 'investigada',
-            'denuncian a ', 'critican', 'reprochan', 'cuestionan a ',
-            'fraude ', 'corrupci', 'irregularidad en ', 'escándalo de ',
-            'veto ', 'prohibi', 'restricci', 'suspensi de ',
-            'crisis sanitaria', 'brote de ', 'enfermedad avicola'
-        ]
-        # Regla: si la marca aparece como sujeto + acción positiva → positivo
-        marca_present = any(m in t for m in strong_pos)
-        if marca_present and any(a in t for a in pos_actions):
-            return "Positivo"
-        # Si hay acción negativa hacia la marca (o su gremio) → negativo
-        if marca_present and any(a in t for a in neg_actions):
-            return "Negativo"
-        # Si la marca no aparece como protagonista de nada negativo → Neutro
-        if marca_present and not any(a in t for a in pos_actions):
-            return "Neutro"
-        # Si no hay mención de marca → Neutro (no es positivo ni negativo para la marca)
-        return None
-
     async def _clasificar(self, texto, sem):
         async with sem:
             om = self._extraer_oraciones_marca(texto)
             if not om:
-                r = self._check_override(texto)
-                return {"tono": r if r else "Neutro"}
+                return {"tono": "Neutro"}
             r = self._reglas(om)
-            if r:
-                return {"tono": r}
-            r = self._check_override(texto)
             if r:
                 return {"tono": r}
             return await self._llm(om, texto)
@@ -2181,16 +1932,21 @@ class ClasificadorSubtema:
             subtemas, textos_por_sub2, self.marca, self.aliases, u['fusion_subtemas']
         )
 
-        # ── Coherencia final: fusionar subtemas equivalentes ──
-        # Ej: "Dipping de tendencias gastronomicas" vs
-        #     "Tendencia global en sabores para pollo" → MISMO subtema
+        # ── Coherencia final: forzar fusion de subtemas equivalentes ──
+        # Ejemplo concreto a evitar:
+        #   "Dipping de tendencias gastronomicas" vs
+        #   "Tendencia global en sabores para pollo"
+        # Mismo evento, labels distintos de LLM → fusionar por similitud.
         pbar.progress(0.98, "Coherencia final de subtemas...")
         orig_unicos = list(dict.fromkeys(subtemas))
         if len(orig_unicos) >= 2:
+            # Mapping: cada label original → su canonical (inicia en si mismo)
             cano_map: Dict[str, str] = {s: s for s in orig_unicos}
+
             emb_subs = get_embeddings_batch(orig_unicos)
             valid_pairs = [
-                (i, emb_subs[i]) for i in range(len(orig_unicos))
+                (i, emb_subs[i])
+                for i in range(len(orig_unicos))
                 if emb_subs[i] is not None
             ]
             if len(valid_pairs) >= 2:
@@ -2198,12 +1954,14 @@ class ClasificadorSubtema:
                 sim_subs = cosine_similarity(np.array(v_emb))
                 for pi in range(len(v_idx)):
                     for pj in range(pi + 1, len(v_idx)):
-                        oi, oj = v_idx[pi], v_idx[pj]
-                        ci, cj = cano_map[orig_unicos[oi]], cano_map[orig_unicos[oj]]
-                        if ci == cj:
+                        oi = v_idx[pi]
+                        oj = v_idx[pj]
+                        cano_i = cano_map[orig_unicos[oi]]
+                        cano_j = cano_map[orig_unicos[oj]]
+                        if cano_i == cano_j:
                             continue
                         merged = False
-                        # Criterio 1: embedding coseno entre labels >= 0.87
+                        # Criterio 1: embeddings coseno >= 0.87
                         if sim_subs[pi][pj] >= 0.87:
                             merged = True
                         # Criterio 2: Jaccard tokens >= 0.45
@@ -2211,25 +1969,30 @@ class ClasificadorSubtema:
                             ti = set(string_norm_label(orig_unicos[oi]).split())
                             tj = set(string_norm_label(orig_unicos[oj]).split())
                             if len(ti) >= 2 and len(tj) >= 2:
-                                if len(ti & tj) / len(ti | tj) >= 0.45:
+                                jac = len(ti & tj) / len(ti | tj)
+                                if jac >= 0.45:
                                     merged = True
                         if merged:
-                            fi = sum(1 for ss in subtemas if cano_map.get(ss) == ci)
-                            fj = sum(1 for ss in subtemas if cano_map.get(ss) == cj)
-                            winner = ci if fi >= fj else cj
-                            loser = cj if winner == ci else ci
+                            # El mas frecuente gana
+                            freq_i = sum(1 for s in subtemas if cano_map.get(s) == cano_i)
+                            freq_j = sum(1 for s in subtemas if cano_map.get(s) == cano_j)
+                            winner = cano_i if freq_i >= freq_j else cano_j
+                            loser = cano_j if winner == cano_i else cano_i
                             for k in cano_map:
                                 if cano_map[k] == loser:
                                     cano_map[k] = winner
+
+            # Aplicar mapeo
             n_antes = len(set(subtemas))
             subtemas = [cano_map.get(s, s) for s in subtemas]
             n_despues = len(set(subtemas))
             if n_antes != n_despues:
                 st.caption(
-                    f"ℹ️ Coherencia final: {n_antes} → {n_despues}"
-                    f" ({n_antes - n_despues} fusionado(s))"
+                    f"ℹ️ Coherencia final: {n_antes} subtemas → {n_despues} "
+                    f"({n_antes - n_despues} fusionado(s) por equivalencia)"
                 )
 
+        # ── dedup final + capitalización ──
         subtemas = dedup_labels(subtemas, u['dedup_label'])
         subtemas = [capitalizar_etiqueta(s) for s in subtemas]
         nf = len(set(subtemas))
@@ -2796,8 +2559,7 @@ def detectar_duplicados_avanzado(rows, km):
     return processed
 
 
-def run_dossier_logic(sheet, xlsx_bytes=None, cliente="", voceros="", enable_scraping=False):
-    """Paso 1: Limpieza y duplicados. Si enable_scraping=True, scrapea GlobalNews."""
+def run_dossier_logic(sheet):
     headers = [c.value for c in sheet[1] if c.value]
     nk = [norm_key(h) for h in headers]
     km = {n: n for n in nk}
@@ -2813,7 +2575,6 @@ def run_dossier_logic(sheet, xlsx_bytes=None, cliente="", voceros="", enable_scr
         "idduplicada": norm_key("ID duplicada"),
         "tipodemedio": norm_key("Tipo de Medio"),
         "hora": norm_key("Hora"),
-        "fecha": norm_key("Fecha"),
         "link_nota": norm_key("Link Nota"),
         "link_streaming": norm_key("Link (Streaming - Imagen)"),
         "region": norm_key("Region")
@@ -2842,69 +2603,6 @@ def run_dossier_logic(sheet, xlsx_bytes=None, cliente="", voceros="", enable_scr
     for row in processed:
         if row["is_duplicate"]:
             row.update({km["tonoiai"]: "Duplicada", km["tema"]: "-", km["subtema"]: "-"})
-    
-    # ── Scraping opcional ──
-    scraped_count = 0
-    if enable_scraping and xlsx_bytes and cliente:
-        scrape_cache = _load_cache(_SCRAPE_CACHE_PATH)
-        resumenes_cache = _load_cache(_LLM_RESUMEN_CACHE_PATH)
-        urls_map = extract_urls_from_xlsx(xlsx_bytes)
-        
-        # Map row numbers to URLs for column W
-        url_rows = []
-        ref_to_xlsx_row = {}
-        ws_xls = sheet
-        for ref, url in urls_map.items():
-            cm = re.match(r'([A-Z]+)(\d+)', ref)
-            if cm and cm.group(1) == "W":
-                ref_to_xlsx_row[int(cm.group(2))] = url
-        
-        # Build scrape list: match processed rows to URLs
-        for row in processed:
-            if row.get("is_duplicate"): continue
-            orig = row.get("original_index")
-            xlsx_row = orig + 2  # 1-indexed + header
-            if xlsx_row in ref_to_xlsx_row:
-                nid = row.get(km.get("idnoticia", ""), "")
-                url = ref_to_xlsx_row[xlsx_row]
-                url_rows.append((xlsx_row, url, str(nid)))
-        
-        if url_rows:
-            with st.status("Scraping de noticias...", expanded=True) as ss:
-                pb = st.progress(0)
-                scraped = scrape_all_news(url_rows, scrape_cache, pb, ss)
-                n_ok = sum(1 for v in scraped.values() if v)
-                ss.update(label="Scraping: {} noticias scrapeedas".format(n_ok), state="complete")
-
-            # Ensure we have a key for the client summary column
-            scrape_key = "resumen_scraped"
-            scraped_text_key = "texto_scraped"
-
-            # Generate client-focused summaries for scraped news
-            for row in processed:
-                if row.get("is_duplicate"): continue
-                orig = row.get("original_index")
-                xlsx_row = orig + 2
-                texto = scraped.get(xlsx_row)
-                if texto:
-                    ck = "rc_" + str(row.get(km.get("idnoticia", ""), ""))
-                    if ck in resumenes_cache:
-                        summary = resumenes_cache[ck]
-                    else:
-                        titulo = str(row.get(km.get("titulo", "")))
-                        medio = str(row.get(km.get("medio", "")))
-                        fecha = str(row.get(km.get("fecha", "")))
-                        summary = generar_resumen_cliente(texto, titulo, medio, fecha, cliente, voceros)
-                        if summary: resumenes_cache[ck] = summary
-                    # NEVER overwrite the original resume column
-                    # Store scraped text and client summary in separate keys
-                    row[scrape_key] = summary or ""
-                    row[scraped_text_key] = texto
-                    scraped_count += 1
-            
-            if resumenes_cache:
-                _save_cache(_LLM_RESUMEN_CACHE_PATH, resumenes_cache)
-    
     return processed, km
 
 
@@ -2937,8 +2635,7 @@ def generate_output_excel(rows, km):
         "Seccion - Programa", "Titulo", "Autor - Conductor", "Nro. Pagina",
         "Dimension", "Duracion - Nro. Caracteres", "CPE", "Audiencia", "Tier",
         "Tono", "Tono IA", "Tema", "Subtema", "Link Nota",
-        "Resumen - Aclaracion", "Resumen Scrapeado", "Texto Completo Scrapeado",
-        "Link (Streaming - Imagen)", "Menciones - Empresa",
+        "Resumen - Aclaracion", "Link (Streaming - Imagen)", "Menciones - Empresa",
         "ID duplicada"
     ]
     NUM = {"ID Noticia", "Nro. Pagina", "Dimension", "Duracion - Nro. Caracteres", "CPE", "Tier", "Audiencia"}
@@ -2946,12 +2643,6 @@ def generate_output_excel(rows, km):
     ls = NamedStyle(name="HL", font=Font(color="0000FF", underline="single"))
     if "HL" not in wb.style_names:
         wb.add_named_style(ls)
-    # Extra column mappings not in km
-    EXTRA_COL_MAP = {
-        "resumenscrapeado": "resumen_scraped",
-        "textocompletoscrapeado": "texto_scraped",
-    }
-
     for row in rows:
         tk = km.get("titulo")
         if tk and tk in row:
@@ -2961,9 +2652,7 @@ def generate_output_excel(rows, km):
             row[rk] = corregir_texto(row.get(rk))
         out, links = [], {}
         for ci, h in enumerate(ORDER, 1):
-            nk_h = norm_key(h)
-            # Try km first, then extra columns
-            dk = km.get(nk_h, EXTRA_COL_MAP.get(nk_h, nk_h))
+            dk  = km.get(norm_key(h), norm_key(h))
             val = row.get(dk)
             cv  = None
             if h in NUM:
@@ -2991,22 +2680,19 @@ def generate_output_excel(rows, km):
 # ======================================
 # Proceso principal
 # ======================================
-async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode, xlsx_bytes=None, cliente="", voceros="", enable_scraping=False):
+async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode):
     st.session_state.update({'tokens_input': 0, 'tokens_output': 0, 'tokens_embedding': 0})
     get_embedding_cache().clear()
     t0 = time.time()
     if "API" in mode:
         try:
-            openai.api_key=st.secrets["OPENAI_API_KEY"]
+            openai.api_key = st.secrets["OPENAI_API_KEY"]
             openai.aiosession.set(None)
         except:
             st.error("OPENAI_API_KEY no encontrado.")
             st.stop()
     with st.status("Paso 1 · Limpieza y duplicados", expanded=True) as s:
-        wb_in = load_workbook(df_file, data_only=True)
-        rows, km = run_dossier_logic(wb_in.active, xlsx_bytes=xlsx_bytes,
-                                     cliente=cliente, voceros=voceros,
-                                     enable_scraping=enable_scraping)
+        rows, km = run_dossier_logic(load_workbook(df_file, data_only=True).active)
         s.update(label="✓ Paso 1", state="complete")
     with st.status("Paso 2 · Mapeos", expanded=True) as s:
         dfr  = _cargar_mapa_excel(st.secrets["REGION_MAP_URL"])
@@ -3025,13 +2711,10 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode, xlsx_bytes=N
     ta = [r for r in rows if not r.get("is_duplicate")]
     if ta:
         df = pd.DataFrame(ta)
-        # Use scraped text when available, otherwise fall back to titulo+resumen
-        def _build_text(r):
-            scraped = r.get("texto_scraped", "")
-            if scraped and len(str(scraped)) > 100:
-                return str(scraped)[:3000]
-            return texto_para_embedding(str(r.get(km["titulo"], "")), str(r.get(km["resumen"], "")))
-        df["_txt"] = df.apply(_build_text, axis=1)
+        df["_txt"] = df.apply(
+            lambda r: texto_para_embedding(str(r.get(km["titulo"], "")), str(r.get(km["resumen"], ""))),
+            axis=1
+        )
         with st.status("Embeddings...", expanded=True) as s:
             _ = get_embeddings_batch(df["_txt"].tolist())
             s.update(label=f"✓ {get_embedding_cache().stats()}", state="complete")
@@ -3043,7 +2726,7 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode, xlsx_bytes=N
                     st.stop()
             elif "API" in mode:
                 res = await ClasificadorTono(bn, ba).procesar_lote_async(
-                    df["_txt"], pb, df.get("resumen_scraped", df[km["resumen"]]), df[km["titulo"]]
+                    df["_txt"], pb, df[km["resumen"]], df[km["titulo"]]
                 )
             else:
                 res = [{"tono": "N/A"}] * len(ta)
@@ -3230,12 +2913,6 @@ def main():
                     ["API de OpenAI", "Híbrido (PKL + API)", "Solo Modelos PKL"],
                     index=0, key="mode"
                 )
-                enable_sc = st.checkbox("Scrapear texto de noticias (GlobalNews)", key="enable_scraping",
-                                       help="Extrae el texto real de cada noticia para generar resumen enfocado")
-                if enable_sc:
-                    st.text_input(
-                        "Voceros (sep. por ;) — para resaltar en resumen",
-                        key="voceros_scrape", placeholder="Ej: Gonzalo Moreno;Juan Perez")
 
             tpkl, epkl = None, None
             if "PKL" in mode:
@@ -3286,14 +2963,7 @@ def main():
                         cur_mode = st.session_state.get("mode", "API de OpenAI")
                         cur_tpkl = st.session_state.get("tpkl")
                         cur_epkl = st.session_state.get("epkl")
-                        # Leer bytes para scraping
-                        f1.seek(0); xlsx_bytes = f1.read(); f1.seek(0)
-                        enable_scrape = st.session_state.get("enable_scraping", False)
-                        voceros_scrape = st.session_state.get("voceros_scrape", "")
-                        asyncio.run(run_full_process_async(f1, bn, al, cur_tpkl, cur_epkl, cur_mode,
-                                                         xlsx_bytes=xlsx_bytes if enable_scrape else None,
-                                                         cliente=bn, voceros=voceros_scrape,
-                                                         enable_scraping=enable_scrape))
+                        asyncio.run(run_full_process_async(f1, bn, al, cur_tpkl, cur_epkl, cur_mode))
                         st.rerun()
         else:
             total = st.session_state.total_rows
