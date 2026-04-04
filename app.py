@@ -39,7 +39,7 @@ OPENAI_MODEL_EMBEDDING     = "text-embedding-3-small"
 OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
 
 CONCURRENT_REQUESTS          = 50
-SIMILARITY_THRESHOLD_TONO    = 0.92
+SIMILARITY_THRESHOLD_TONO    = 0.82
 SIMILARITY_THRESHOLD_TITULOS = 0.93
 
 # ── Umbrales base (corpus grande ≥ 20 noticias) ──────────────────────────────
@@ -893,23 +893,12 @@ def _validar_etiqueta_completa(etiqueta, titulos_grp=None, resumenes_grp=None, m
 
 
 def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
-    """Agrupa etiquetas similares en UN label comun.
-    
-    MEJORA clave: ahora usa 3 niveles de deteccion de duplicados
-    (antes solo SequenceMatcher):
-    1. Tokens compartidos (Jaccard >= 0.6) → mismo grupo
-    2. Embeddings coseno (>= umbral) → mismo grupo
-    3. Contencion de strings (substrings incluidos) → mismo grupo
-    """
     unique = list(dict.fromkeys(etiquetas))
     if len(unique) <= 1:
         return etiquetas
     normed = [string_norm_label(u) for u in unique]
     n = len(unique)
     parent = list(range(n))
-    # Boost umbral para grupos pequenos: mas agresivo
-    if n <= 15:
-        umbral = min(umbral, 0.85)
 
     def find(x):
         while parent[x] != x:
@@ -978,12 +967,6 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
 
 
 def _fusionar_subtemas_semanticos(subtemas, textos_por_subtema, marca, aliases, umbral=UMBRAL_FUSION_SUBTEMAS):
-    """Fusiona subtemas semanticamente similares.
-    MEJORA: 
-    - Reducir umbral si hay pocos subtemas (<15)
-    - Agregar segundo paso: comparacion por keywords compartidas (Jaccard)
-    - Tercer paso: contencion de textos (si uno es subset del otro)
-    """
     unique_subs = list(dict.fromkeys(subtemas))
     if len(unique_subs) <= 1:
         return subtemas
@@ -1017,31 +1000,12 @@ def _fusionar_subtemas_semanticos(subtemas, textos_por_subtema, marca, aliases, 
         if ra != rb:
             parent[rb] = ra
 
-    # Umbral adaptativo: mas agresivo con pocos subtemas
-    umbral_efectivo = umbral
-    if len(unique_subs) <= 8:
-        umbral_efectivo = min(umbral, 0.75)
-    elif len(unique_subs) <= 15:
-        umbral_efectivo = min(umbral, 0.82)
-
     for i in range(n):
         for j in range(i + 1, n):
             if find(i) == find(j):
                 continue
-            if sim[i][j] >= umbral_efectivo:
+            if sim[i][j] >= umbral:
                 union(i, j)
-    
-    # Paso adicional: fusion por keywords compartidas (Jaccard)
-    norm_subs = [string_norm_label(unique_subs[i]).split() for i in range(len(unique_subs))]
-    for i in range(len(norm_subs)):
-        for j in range(i + 1, len(norm_subs)):
-            if find(i) == find(j):
-                continue
-            si, sj = set(norm_subs[i]), set(norm_subs[j])
-            if len(si) >= 2 and len(sj) >= 2:
-                jaccard = len(si & sj) / len(si | sj)
-                if jaccard >= 0.5:
-                    union(i, j)
     grupos = defaultdict(list)
     for i in range(n):
         grupos[find(i)].append(v_idx[i])
@@ -1260,90 +1224,46 @@ class ClasificadorTono:
         bf = self.brand_re.search(on)
         if not bf:
             return 0, 0
-        # Contexto extendido alrededor de la marca (80 chars)
-        contexto = on[max(0, bf.start() - 80):bf.end() + 80]
         neg_near = bool(re.search(
-            r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni|denuncia|demanda|sanciona|multa|critica|ataca|fraude|corrupcion|irregularidad)\b',
-            contexto, re.IGNORECASE
-        ))
-        # Verbo activo de la marca
-        verbo_positivo = bool(re.search(
-            r'\b(lanza|inaugura|estrena|anuncia|crea|construye|abre|inicia|implementa|desarrolla|invierte|expande|fortalece|mejora|beneficia|gana|crece|lidera|aliados|celebra|reconoce|premia|soluciona|resuelve|atiende|responde)\b',
-            contexto, re.IGNORECASE
-        ))
-        verbo_negativo = bool(re.search(
-            r'\b(cae|pierde|falla|suspende|cierra|renuncia|huelga|ataque|hackeo|boicot|reclamo|perdida|deficit|conflicto|disputa|rechaza|problema|riesgo|tragedia|crisis|emergencia|desastre|inundacion|deslizamiento|damnificados|deterioro|irregularidad|corrupcion|evasion|sanciona|multa|denuncia|demanda|investiga|critica)\b',
-            contexto, re.IGNORECASE
+            r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni)\b',
+            on[max(0, bf.start() - 40):bf.end() + 40], re.IGNORECASE
         ))
         if CRISIS_KEYWORDS.search(on) and RESPONSE_VERBS.search(on):
             if self._es_sujeto(oracion):
                 return 3, 0
         ph = sum(1 for p in POS_PATTERNS if p.search(on))
         nh = sum(1 for p in NEG_PATTERNS if p.search(on))
-        # Boost por verbos activos
-        if verbo_positivo:
-            ph += 2
-        if verbo_negativo:
-            nh += 2
-        w = 1.2 if self._es_sujeto(oracion) else 0.3
+        w = 1.0 if self._es_sujeto(oracion) else 0.3
         if neg_near:
-            return int(nh * w * 1.3), int(ph * w)
+            return int(nh * w), int(ph * w)
         return int(ph * w), int(nh * w)
 
     def _reglas(self, oraciones):
         tp, tn = 0, 0
-        sujeto_pos = 0
-        sujeto_neg = 0
         for s in oraciones:
             p, n = self._sentimiento_oracion(s)
             tp += p
             tn += n
-            if self._es_sujeto(s):
-                if p > n:
-                    sujeto_pos += 1
-                elif n > p:
-                    sujeto_neg += 1
-        # Si el sujeto (marca) es claro, usar solo esos scores
-        if sujeto_pos >= 1 and sujeto_neg == 0:
+        if tp >= 2 and tp > tn * 2:
             return "Positivo"
-        if sujeto_neg >= 1 and sujeto_pos == 0:
-            return "Negativo"
-        # Fallback a totales con umbral más bajo
-        if tp >= 2 and tp > tn:
-            return "Positivo"
-        if tn >= 2 and tn > tp:
-            return "Negativo"
-        # Tie-breaker: si hay alguna oracion de sujeto, darle ventaja
-        if sujeto_pos > sujeto_neg:
-            return "Positivo"
-        if sujeto_neg > sujeto_pos:
+        if tn >= 2 and tn > tp * 2:
             return "Negativo"
         return None
 
     async def _llm(self, oraciones, texto):
-        fragmentos = "\\n".join(f"  → {s[:300]}" for s in oraciones[:5])
-        alias_str = ", ".join(self.aliases) if self.aliases else "Ninguno"
+        fragmentos = "\n".join(f"  → {s[:300]}" for s in oraciones[:4])
         prompt = (
-            f"Eres un analista de reputacion corporativa.\\n\\n"
-            f"Evalua el sentimiento EXCLUSIVAMENTE hacia '{self.marca}' "
-            f"(tambien conocida como: {alias_str}) "
-            f"en base SOLO a los fragmentos donde se menciona a esta entidad.\\n\\n"
-            f"REGLAS ABSOLUTAS:\\n"
-            f"1. El tono es RELATIVO a '{self.marca}': que tan bien o mal queda esa entidad en la noticia.\\n"
-            f"2. Si '{self.marca}' esta resolviendo un problema, lanzando algo, creciendo, "
-            f"invirtiendo, ayudando, siendo reconocida → Positivo.\\n"
-            f"3. Si '{self.marca}' es criticada, sancionada, demandada, tiene fallas operativas, "
-            f"pierde clientes/reputacion, es asociada a escandalo → Negativo.\\n"
-            f"4. Si '{self.marca}' solo se menciona como dato (ej: 'el sector incluye a {self.marca}') "
-            f"→ Neutro.\\n"
-            f"5. La noticia puede ser negativa en general pero '{self.marca}' puede estar actuando bien "
-            f"en ella → Positivo para '{self.marca}'.\\n"
-            f"6. La noticia puede ser positiva pero '{self.marca}' puede ser el problema → "
-            f"Negativo para '{self.marca}'.\\n"
-            f"7. Si un competidor sale mal PARADO, eso NO hace positivo a '{self.marca}' → Neutro.\\n\\n"
-            f"FRAGMENTOS DONDE SE MENCIONA A '{self.marca}':\\n\\n"
-            f"{fragmentos}\\n\\n"
-            f'Formato JSON: {{"tono":"Positivo|Negativo|Neutro","justificacion":"razon breve en 1 linea"}}'
+            f"Evalúa el sentimiento EXCLUSIVAMENTE hacia '{self.marca}'"
+            f" (alias: {', '.join(self.aliases) if self.aliases else 'N/A'}) "
+            f"en los fragmentos donde se le menciona.\n"
+            f"REGLAS CLAVE:\n"
+            f"- Evalúa SOLO cómo se habla de '{self.marca}', NO el tono general de la noticia.\n"
+            f"- Si la noticia es negativa pero '{self.marca}' es mencionada positivamente → Positivo.\n"
+            f"- Si la noticia es positiva pero '{self.marca}' es criticada → Negativo.\n"
+            f"- Si '{self.marca}' solo se menciona de paso sin juicio → Neutro.\n"
+            f"- Competidor negativo NO hace a '{self.marca}' positivo → Neutro.\n"
+            f"FRAGMENTOS CON MENCIÓN:\n{fragmentos}\n"
+            f'JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
         )
         try:
             resp = await acall_with_retries(
@@ -2012,6 +1932,68 @@ class ClasificadorSubtema:
             subtemas, textos_por_sub2, self.marca, self.aliases, u['fusion_subtemas']
         )
 
+        # ── Coherencia final: forzar fusion de subtemas equivalentes ──
+        # Ejemplo concreto a evitar:
+        #   "Dipping de tendencias gastronomicas" vs
+        #   "Tendencia global en sabores para pollo"
+        # Mismo evento, labels distintos de LLM → fusionar por similitud.
+        pbar.progress(0.98, "Coherencia final de subtemas...")
+        orig_unicos = list(dict.fromkeys(subtemas))
+        if len(orig_unicos) >= 2:
+            # Mapping: cada label original → su canonical (inicia en si mismo)
+            cano_map: Dict[str, str] = {s: s for s in orig_unicos}
+
+            emb_subs = get_embeddings_batch(orig_unicos)
+            valid_pairs = [
+                (i, emb_subs[i])
+                for i in range(len(orig_unicos))
+                if emb_subs[i] is not None
+            ]
+            if len(valid_pairs) >= 2:
+                v_idx, v_emb = zip(*valid_pairs)
+                sim_subs = cosine_similarity(np.array(v_emb))
+                for pi in range(len(v_idx)):
+                    for pj in range(pi + 1, len(v_idx)):
+                        oi = v_idx[pi]
+                        oj = v_idx[pj]
+                        cano_i = cano_map[orig_unicos[oi]]
+                        cano_j = cano_map[orig_unicos[oj]]
+                        if cano_i == cano_j:
+                            continue
+                        merged = False
+                        # Criterio 1: embeddings coseno >= 0.87
+                        if sim_subs[pi][pj] >= 0.87:
+                            merged = True
+                        # Criterio 2: Jaccard tokens >= 0.45
+                        if not merged:
+                            ti = set(string_norm_label(orig_unicos[oi]).split())
+                            tj = set(string_norm_label(orig_unicos[oj]).split())
+                            if len(ti) >= 2 and len(tj) >= 2:
+                                jac = len(ti & tj) / len(ti | tj)
+                                if jac >= 0.45:
+                                    merged = True
+                        if merged:
+                            # El mas frecuente gana
+                            freq_i = sum(1 for s in subtemas if cano_map.get(s) == cano_i)
+                            freq_j = sum(1 for s in subtemas if cano_map.get(s) == cano_j)
+                            winner = cano_i if freq_i >= freq_j else cano_j
+                            loser = cano_j if winner == cano_i else cano_i
+                            for k in cano_map:
+                                if cano_map[k] == loser:
+                                    cano_map[k] = winner
+
+            # Aplicar mapeo
+            n_antes = len(set(subtemas))
+            subtemas = [cano_map.get(s, s) for s in subtemas]
+            n_despues = len(set(subtemas))
+            if n_antes != n_despues:
+                st.caption(
+                    f"ℹ️ Coherencia final: {n_antes} subtemas → {n_despues} "
+                    f"({n_antes - n_despues} fusionado(s) por equivalencia)"
+                )
+
+        # ── dedup final + capitalización ──
+        subtemas = dedup_labels(subtemas, u['dedup_label'])
         subtemas = [capitalizar_etiqueta(s) for s in subtemas]
         nf = len(set(subtemas))
         pbar.progress(1.0, f"{nf} subtemas")
@@ -2133,42 +2115,33 @@ def _tema_es_igual_a_subtema(tema: str, subtemas_grupo: list) -> bool:
 
 
 def _generar_nombre_tema_llm(subtemas_grupo, textos_muestra, titulos_muestra):
-    subs_list = "\\n".join(f"  · {s}" for s in subtemas_grupo[:8])
+    subs_list = "\n".join(f"  · {s}" for s in subtemas_grupo[:8])
     palabras = []
     for t in titulos_muestra[:15]:
         for w in string_norm_label(str(t)).split():
             if len(w) > 3:
                 palabras.append(w)
     kw = ", ".join(w for w, _ in Counter(palabras).most_common(6))
-    tit_muestra = "\\n".join(f"  · {t[:100]}" for t in list(dict.fromkeys(titulos_muestra))[:5])
+    tit_muestra = "\n".join(f"  · {t[:100]}" for t in list(dict.fromkeys(titulos_muestra))[:5])
 
     prompt = (
-        "Eres editor jefe de un periódico colombiano. "
-        "Crea UNA sección temática GENERAL (2-3 palabras) que agrupe estos subtemas.\n\n"
-        "SUBTEMAS que debes agrupar:\n" + subs_list +
+        "Eres editor jefe de un periódico. "
+        "Crea UNA sección editorial (2-4 palabras) que agrupe estos subtemas.\n\n"
+        "SUBTEMAS:\n" + subs_list +
         "\n\nTÍTULOS DE REFERENCIA:\n" + tit_muestra +
-        f"\n\nPALABRAS CLAVE: {kw}\n\n"
-        "CATEGORÍAS FRECUENTES en noticias colombianas:\n"
-        "  Infraestructura vial, Transporte publico, Gestion territorial, "
-        "Seguridad ciudadana, Salud publica, Educacion, Economia regional, "
-        "Comercio exterior, Medio ambiente, Cultura y deporte, "
-        "Tecnologia e innovacion, Justicia, Gobierno nacional, "
-        "Politica local, Servicios publicos, Orden publico, "
-        "Obras publicas, Desarrollo urbano, Gestion ambiental, "
-        "Empleo y economia, Agro y campo\n\n"
+        f"\n\nKEYWORDS: {kw}\n\n"
         "REGLAS ESTRICTAS:\n"
-        "  1. El tema debe ser MAS GENERAL que cualquiera de los subtemas.\n"
-        "     Los subtemas son el DETALLE, el tema es la CATEGORÍA.\n"
-        "  2. Si todos los subtemas hablan de carreteras/vias/movilidad "
-        "→ 'Transporte e infraestructura vial'\n"
-        "  3. NUNCA uses el subtema tal cual como tema.\n"
-        "  4. 2-4 palabras MAX. Sustantivo + complementos.\n"
-        "  5. Tildes y ñ correctas.\n"
-        "  6. NO nombres propios, NO numeros, NO ciudades.\n\n"
-        "CORRECTO: 'Transporte e infraestructura vial', 'Gestion territorial', "
-        "'Salud y bienestar social', 'Seguridad ciudadana'\n"
-        "INCORRECTO: 'Paro de camioneros', 'Alcalde presenta plan', "
-        "'Cinco congresistas con problemas'\n\n"
+        "  1. Piensa en secciones de periódico: 'Política', 'Economía', "
+        "'Tecnología', 'Seguridad', 'Justicia', 'Medio Ambiente'.\n"
+        "  2. Más GENERAL y ABSTRACTO que los subtemas — nunca repitas "
+        "un subtema ni copies fragmentos de titular.\n"
+        "  3. NUNCA incluyas números, cantidades ni nombres propios.\n"
+        "  4. 2-4 palabras. Sustantivo + adjetivo o sustantivo solo.\n"
+        "  5. Tildes y ñ correctas.\n\n"
+        "CORRECTO: 'Política', 'Gestión legislativa', 'Justicia penal', "
+        "'Regulación financiera'\n"
+        "INCORRECTO: 'Cinco congresistas con líos', 'Congresistas electos', "
+        "'Investigación disciplinaria congreso', 'Nuevo acuerdo'\n\n"
         'JSON: {"tema":"..."}'
     )
     try:
