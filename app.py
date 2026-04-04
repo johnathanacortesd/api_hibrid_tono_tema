@@ -1220,21 +1220,44 @@ class ClasificadorTono:
         return m and m.start() < len(on) * 0.6
 
     def _sentimiento_oracion(self, oracion):
+        """Evalúa si la oración habla BIEN o MAL DE LA MARCA, no de la noticia en general."""
         on = unidecode(oracion.lower())
         bf = self.brand_re.search(on)
         if not bf:
             return 0, 0
+        es_sujeto = self._es_sujeto(oracion)
         neg_near = bool(re.search(
             r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni)\b',
             on[max(0, bf.start() - 40):bf.end() + 40], re.IGNORECASE
         ))
-        if CRISIS_KEYWORDS.search(on) and RESPONSE_VERBS.search(on):
-            if self._es_sujeto(oracion):
-                return 3, 0
+        # Si la marca ADVIERTE sobre crisis/riesgo → es positiva (proactiva), no negativa
+        has_crisis = bool(CRISIS_KEYWORDS.search(on))
+        has_response = bool(RESPONSE_VERBS.search(on))
+        proactive_verbs = re.search(
+            r'\b(adviert|recomiend|pid|solicit|alert|activ|promuev|propone|busca|trabaja|gestiona|enfrent|afront)\b',
+            on, re.IGNORECASE
+        )
+        # Brand criticized/sanctioned → genuinely negative
+        brand_attacked = re.search(
+            r'\b(sancion|mult|investig|acus|denuncian contra|critican a|cuestion|reproch|inhabilit|suspenden a)\b',
+            on, re.IGNORECASE
+        )
+        if brand_attacked and es_sujeto:
+            return 0, 5  # Unambiguously negative
+        if (has_crisis or has_response or proactive_verbs) and es_sujeto:
+            # Brand is responding or proactive → crisis words are NOT negative for brand
+            ph = sum(1 for p in POS_PATTERNS if p.search(on)) + 1  # bonus for acting
+            nh = 0  # Don't penalize for crisis keywords when brand is responding
+            if neg_near and not proactive_verbs:
+                nh = 1
+            return int(ph * 1.5), int(nh * 1.5)
         ph = sum(1 for p in POS_PATTERNS if p.search(on))
         nh = sum(1 for p in NEG_PATTERNS if p.search(on))
-        w = 1.0 if self._es_sujeto(oracion) else 0.3
-        if neg_near:
+        # Brand just mentioning crisis without action → neutral, not negative
+        if has_crisis and not brand_attacked:
+            nh = 0
+        w = 1.2 if es_sujeto else 0.3
+        if neg_near and not proactive_verbs:
             return int(nh * w), int(ph * w)
         return int(ph * w), int(nh * w)
 
@@ -1252,18 +1275,24 @@ class ClasificadorTono:
 
     async def _llm(self, oraciones, texto):
         fragmentos = "\n".join(f"  → {s[:300]}" for s in oraciones[:4])
+        marca = self.marca
+        aliases_str = ', '.join(self.aliases) if self.aliases else 'N/A'
         prompt = (
-            f"Evalúa el sentimiento EXCLUSIVAMENTE hacia '{self.marca}'"
-            f" (alias: {', '.join(self.aliases) if self.aliases else 'N/A'}) "
-            f"en los fragmentos donde se le menciona.\n"
-            f"REGLAS CLAVE:\n"
-            f"- Evalúa SOLO cómo se habla de '{self.marca}', NO el tono general de la noticia.\n"
-            f"- Si la noticia es negativa pero '{self.marca}' es mencionada positivamente → Positivo.\n"
-            f"- Si la noticia es positiva pero '{self.marca}' es criticada → Negativo.\n"
-            f"- Si '{self.marca}' solo se menciona de paso sin juicio → Neutro.\n"
-            f"- Competidor negativo NO hace a '{self.marca}' positivo → Neutro.\n"
-            f"FRAGMENTOS CON MENCIÓN:\n{fragmentos}\n"
-            f'JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
+            f"Eres analista de reputación corporativa. Evalúa el impacto DIRECTO sobre '{marca}' "
+            f"(alias: {aliases_str}) en estos fragmentos.\n\n"
+            f"REGLAS ESENCIALES:\n"
+            f"1. NO evalúes el tono general de la noticia. Evalúa SOLO cómo sale {marca}.\n"
+            f"2. POSITIVO: {marca} logra algo, anuncia algo bueno, crece, es reconocida, "
+            f"produce más, abre mercados, lidera iniciativas.\n"
+            f"3. NEGATIVO: {marca} es criticada, sancionada, investigada, acusada, "
+            f"se le encuentra fraude/corrupción/irregularidades.\n"
+            f"4. NEUTRO: {marca} solo se menciona sin juicio, advierte sobre el sector, "
+            f"la noticia es del sector pero no habla de {marca}, "
+            f"o la noticia es positiva del sector pero {marca} no es protagonista.\n"
+            f"5. 'Producción superior', 'récord', 'crecimiento' → Positivo si {marca} está involucrada.\n"
+            f"6. Crisis o alertas del sector → Neutro para {marca} a menos que sea culpada directamente.\n\n"
+            f"FRAGMENTOS:\n{fragmentos}\n\n"
+            f'Responde SOLO con JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
         )
         try:
             resp = await acall_with_retries(
