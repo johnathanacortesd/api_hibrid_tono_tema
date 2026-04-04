@@ -3130,7 +3130,7 @@ def main():
                 enable_sc = st.checkbox("Scrapear texto de noticias (GlobalNews)", key="enable_scraping",
                                        help="Extrae el texto real de cada noticia para generar resumen enfocado")
                 if enable_sc:
-                    st.session_state["voceros_scrape"] = st.text_input(
+                    st.text_input(
                         "Voceros (sep. por ;) — para resaltar en resumen",
                         key="voceros_scrape", placeholder="Ej: Gonzalo Moreno;Juan Perez")
 
