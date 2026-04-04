@@ -39,16 +39,15 @@ OPENAI_MODEL_EMBEDDING     = "text-embedding-3-small"
 OPENAI_MODEL_CLASIFICACION = "gpt-4.1-nano-2025-04-14"
 
 CONCURRENT_REQUESTS          = 50
-SIMILARITY_THRESHOLD_TONO    = 0.82
+SIMILARITY_THRESHOLD_TONO    = 0.92
 SIMILARITY_THRESHOLD_TITULOS = 0.93
 
-# ── Umbrales base (corpus grande ≥ 20 noticias) ──────────────────────────────
 UMBRAL_SUBTEMA = 0.78
 UMBRAL_TEMA    = 0.72
 NUM_TEMAS_MAX  = 15
 
 UMBRAL_DEDUP_LABEL           = 0.78
-UMBRAL_FUSION_SUBTEMAS       = 0.78
+UMBRAL_FUSION_SUBTEMAS       = 0.82
 UMBRAL_FUSION_INTERGRUPO     = 0.84
 MAX_ITER_FUSION              = 5
 
@@ -58,13 +57,6 @@ UMBRAL_MIN_PERTENENCIA_TEMA    = 0.52
 UMBRAL_COHERENCIA_ETIQUETA   = 0.35
 
 MAX_GRUPO_ETIQUETA           = 40
-
-# ── Umbrales mínimos de similitud REAL para agrupar ──────────────────────────
-# Una noticia sólo entra en un grupo si su similitud con el representante
-# supera este umbral, sin importar lo que diga el clustering.
-SIM_MINIMA_AGRUPACION_SUBTEMA = 0.82   # nunca agrupar por debajo de esto
-SIM_MINIMA_KEYWORDS_RARAS     = 0.78   # para _paso2b_keywords
-SIM_MINIMA_FUSION_INTER       = 0.88   # más estricto que el base
 
 PRICE_INPUT_1M     = 0.10
 PRICE_OUTPUT_1M    = 0.40
@@ -118,6 +110,7 @@ encontrar creer decir poner salir volver seguir llevar sentir cambiar
 """.split())
 
 _TRAILING_INCOMPLETE = {
+    # Preposiciones y artículos — sí dejan frase incompleta al final
     "de","del","la","el","los","las","un","una","unos","unas","al","su","sus",
     "en","con","sin","por","para","sobre","ante","bajo","contra","desde",
     "entre","hacia","hasta","mediante","tras","y","o","u","e","lo","que","se",
@@ -129,8 +122,15 @@ _TRAILING_INCOMPLETE = {
     "peor","peores","primer","primera","segundo","segunda","tercer","tercera",
     "más","mas","muy","tan","tanto","tanta","tantos","tantas",
     "mi","mis","tu","tus","nuestro","nuestra","nuestros","nuestras",
+    # Infinitivos y auxiliares — sí dejan frase incompleta
     "a","ha","he","ser","estar","haber","hacer","tener","poder","deber",
     "ir","dar","ver","saber","querer","llegar","pasar","decir","poner",
+    # NOTA: Los verbos conjugados (presenta, anuncia, lanza, etc.) fueron
+    # eliminados de esta lista. No pertenecen aquí porque cuando quedan al
+    # final de una frase (tras eliminar el objeto ciudad), la frase es
+    # semánticamente inválida pero no "incompleta" en el sentido de
+    # _recortar_frase_completa. El problema se maneja en limpiar_tema_geografico
+    # y en la validación de coherencia de _generar_etiqueta.
 }
 
 POS_VARIANTS = [
@@ -472,94 +472,6 @@ hr{border-color:var(--s3)!important;margin:0.5rem 0!important}
 
 
 # ======================================
-# Umbrales adaptativos según tamaño del corpus
-# ======================================
-def _umbrales_adaptativos(n: int) -> dict:
-    """
-    Devuelve umbrales ajustados al tamaño del corpus.
-
-    Con pocas noticias (2-10) el espacio de similitudes es pequeño y los
-    algoritmos de clustering tienden a colapsar noticias distintas.  Se
-    elevan los umbrales para exigir similitud real antes de agrupar.
-
-    Rangos:
-      n ≤  5  → modo "individual": cada noticia es su propio subtema
-                 salvo que la similitud sea ≥ 0.92 (casi idénticas)
-      n ≤ 10  → umbrales muy estrictos
-      n ≤ 20  → umbrales estrictos
-      n > 20  → umbrales base originales
-    """
-    if n <= 5:
-        return dict(
-            subtema=0.93,          # sólo noticias casi idénticas se agrupan
-            tema=0.85,
-            dedup_label=0.90,
-            fusion_subtemas=0.92,
-            fusion_intergrupo=0.95,
-            min_pertenencia_subtema=0.80,
-            min_pertenencia_tema=0.75,
-            coherencia_etiqueta=0.50,
-            sim_minima_agrupacion=0.93,  # verificación post-clustering
-            sim_minima_keywords=0.93,    # _paso2b desactivado en la práctica
-            max_iter_fusion=1,
-            num_temas_max=n,             # nunca más temas que noticias
-            usar_paso2b=False,           # deshabilitar keywords raras
-            usar_fusion_iterativa=False, # deshabilitar fusión iterativa
-        )
-    elif n <= 10:
-        return dict(
-            subtema=0.88,
-            tema=0.80,
-            dedup_label=0.85,
-            fusion_subtemas=0.87,
-            fusion_intergrupo=0.91,
-            min_pertenencia_subtema=0.72,
-            min_pertenencia_tema=0.65,
-            coherencia_etiqueta=0.42,
-            sim_minima_agrupacion=0.88,
-            sim_minima_keywords=0.88,
-            max_iter_fusion=2,
-            num_temas_max=min(n, 5),
-            usar_paso2b=False,
-            usar_fusion_iterativa=False,
-        )
-    elif n <= 20:
-        return dict(
-            subtema=0.83,
-            tema=0.76,
-            dedup_label=0.82,
-            fusion_subtemas=0.82,
-            fusion_intergrupo=0.88,
-            min_pertenencia_subtema=0.66,
-            min_pertenencia_tema=0.58,
-            coherencia_etiqueta=0.38,
-            sim_minima_agrupacion=0.84,
-            sim_minima_keywords=0.84,
-            max_iter_fusion=3,
-            num_temas_max=min(n // 2, NUM_TEMAS_MAX),
-            usar_paso2b=True,
-            usar_fusion_iterativa=True,
-        )
-    else:
-        return dict(
-            subtema=UMBRAL_SUBTEMA,
-            tema=UMBRAL_TEMA,
-            dedup_label=UMBRAL_DEDUP_LABEL,
-            fusion_subtemas=UMBRAL_FUSION_SUBTEMAS,
-            fusion_intergrupo=UMBRAL_FUSION_INTERGRUPO,
-            min_pertenencia_subtema=UMBRAL_MIN_PERTENENCIA_SUBTEMA,
-            min_pertenencia_tema=UMBRAL_MIN_PERTENENCIA_TEMA,
-            coherencia_etiqueta=UMBRAL_COHERENCIA_ETIQUETA,
-            sim_minima_agrupacion=SIM_MINIMA_AGRUPACION_SUBTEMA,
-            sim_minima_keywords=SIM_MINIMA_KEYWORDS_RARAS,
-            max_iter_fusion=MAX_ITER_FUSION,
-            num_temas_max=NUM_TEMAS_MAX,
-            usar_paso2b=True,
-            usar_fusion_iterativa=True,
-        )
-
-
-# ======================================
 # Caché Global de Embeddings
 # ======================================
 class EmbeddingCache:
@@ -717,6 +629,7 @@ def limpiar_tema(tema):
     for px in ["subtema:", "tema:", "categoría:", "categoria:", "category:"]:
         if tema.lower().startswith(px):
             tema = tema[len(px):].strip()
+    # Recortar a máximo 7 palabras sin cortar en preposición/artículo
     tema = _recortar_frase_completa(tema, max_palabras=7)
     return capitalizar_etiqueta(tema) if tema else "Sin tema"
 
@@ -727,10 +640,12 @@ def limpiar_tema_geografico(tema, marca, aliases):
 
     tl = unidecode(tema.lower())
 
+    # 1. Eliminar solo la marca y aliases (nunca ciudades ni regiones)
     for n in [marca] + [a for a in aliases if a]:
         patron = r'\b' + re.escape(unidecode(n.strip().lower())) + r'\b'
         tl = re.sub(patron, '', tl)
 
+    # 2. Eliminar SOLO frases genéricas de Colombia que no aportan al subtema
     frases_eliminar = [
         "en colombia", "de colombia", "del pais", "en el pais",
         "territorio nacional", "a nivel nacional", "en todo el pais",
@@ -738,11 +653,13 @@ def limpiar_tema_geografico(tema, marca, aliases):
     for frase in frases_eliminar:
         tl = re.sub(r'\b' + re.escape(frase) + r'\b', '', tl)
 
+    # 3. Limpiar espacios múltiples
     tl = re.sub(r'\s+', ' ', tl).strip()
 
     if not tl:
         return "Sin tema"
 
+    # 4. Reconstruir preservando capitalización original
     tokens_orig = tema.split()
     tokens_norm = unidecode(tema.lower()).split()
     norm_disponibles = tl.split()
@@ -919,22 +836,6 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
                 continue
             if SequenceMatcher(None, normed[i], normed[j]).ratio() >= umbral:
                 union(i, j)
-    for i in range(n):
-        if not normed[i]:
-            continue
-        tokens_i = set(normed[i].split())
-        if len(tokens_i) < 2:
-            continue
-        for j in range(i + 1, n):
-            if not normed[j] or find(i) == find(j):
-                continue
-            tokens_j = set(normed[j].split())
-            if len(tokens_j) < 2:
-                continue
-            interseccion = tokens_i & tokens_j
-            menor = min(len(tokens_i), len(tokens_j))
-            if menor > 0 and len(interseccion) / menor >= 0.6:
-                union(i, j)
     le = get_embeddings_batch(unique)
     vp = [(i, le[i]) for i in range(n) if le[i] is not None]
     if len(vp) >= 2:
@@ -942,7 +843,7 @@ def dedup_labels(etiquetas, umbral=UMBRAL_DEDUP_LABEL):
         sm = cosine_similarity(np.array(vv))
         for pi in range(len(vi)):
             for pj in range(pi + 1, len(vi)):
-                if sm[pi][pj] >= umbral:
+                if sm[pi][pj] >= umbral + 0.05:
                     if find(vi[pi]) != find(vi[pj]):
                         union(vi[pi], vi[pj])
     freq = Counter(etiquetas)
@@ -1205,14 +1106,9 @@ class ClasificadorTono:
         resultado = []
         for i, sent in enumerate(oraciones):
             if self.brand_re.search(unidecode(sent.lower())):
-                partes = []
-                if i > 0:
-                    partes.append(oraciones[i - 1])
-                partes.append(sent)
-                if i < len(oraciones) - 1:
-                    partes.append(oraciones[i + 1])
-                resultado.append(" ".join(partes).strip())
-        return list(dict.fromkeys(resultado))[:5]
+                ctx = (oraciones[i - 1] + " " + sent) if i > 0 else sent
+                resultado.append(ctx.strip())
+        return list(dict.fromkeys(resultado))[:5] if resultado else [texto[:600]]
 
     def _es_sujeto(self, oracion):
         on = unidecode(oracion.lower())
@@ -1220,44 +1116,21 @@ class ClasificadorTono:
         return m and m.start() < len(on) * 0.6
 
     def _sentimiento_oracion(self, oracion):
-        """Evalúa si la oración habla BIEN o MAL DE LA MARCA, no de la noticia en general."""
         on = unidecode(oracion.lower())
         bf = self.brand_re.search(on)
         if not bf:
             return 0, 0
-        es_sujeto = self._es_sujeto(oracion)
         neg_near = bool(re.search(
             r'\b(no|sin|nunca|jamás|niega|rechaza|desmiente|tampoco|ni)\b',
             on[max(0, bf.start() - 40):bf.end() + 40], re.IGNORECASE
         ))
-        # Si la marca ADVIERTE sobre crisis/riesgo → es positiva (proactiva), no negativa
-        has_crisis = bool(CRISIS_KEYWORDS.search(on))
-        has_response = bool(RESPONSE_VERBS.search(on))
-        proactive_verbs = re.search(
-            r'\b(adviert|recomiend|pid|solicit|alert|activ|promuev|propone|busca|trabaja|gestiona|enfrent|afront)\b',
-            on, re.IGNORECASE
-        )
-        # Brand criticized/sanctioned → genuinely negative
-        brand_attacked = re.search(
-            r'\b(sancion|mult|investig|acus|denuncian contra|critican a|cuestion|reproch|inhabilit|suspenden a)\b',
-            on, re.IGNORECASE
-        )
-        if brand_attacked and es_sujeto:
-            return 0, 5  # Unambiguously negative
-        if (has_crisis or has_response or proactive_verbs) and es_sujeto:
-            # Brand is responding or proactive → crisis words are NOT negative for brand
-            ph = sum(1 for p in POS_PATTERNS if p.search(on)) + 1  # bonus for acting
-            nh = 0  # Don't penalize for crisis keywords when brand is responding
-            if neg_near and not proactive_verbs:
-                nh = 1
-            return int(ph * 1.5), int(nh * 1.5)
+        if CRISIS_KEYWORDS.search(on) and RESPONSE_VERBS.search(on):
+            if self._es_sujeto(oracion):
+                return 3, 0
         ph = sum(1 for p in POS_PATTERNS if p.search(on))
         nh = sum(1 for p in NEG_PATTERNS if p.search(on))
-        # Brand just mentioning crisis without action → neutral, not negative
-        if has_crisis and not brand_attacked:
-            nh = 0
-        w = 1.2 if es_sujeto else 0.3
-        if neg_near and not proactive_verbs:
+        w = 1.0 if self._es_sujeto(oracion) else 0.3
+        if neg_near:
             return int(nh * w), int(ph * w)
         return int(ph * w), int(nh * w)
 
@@ -1267,32 +1140,19 @@ class ClasificadorTono:
             p, n = self._sentimiento_oracion(s)
             tp += p
             tn += n
-        if tp >= 2 and tp > tn * 2:
+        if tp >= 4 and tp > tn * 2.5:
             return "Positivo"
-        if tn >= 2 and tn > tp * 2:
+        if tn >= 4 and tn > tp * 2.5:
             return "Negativo"
         return None
 
     async def _llm(self, oraciones, texto):
-        fragmentos = "\n".join(f"  → {s[:300]}" for s in oraciones[:4])
-        marca = self.marca
-        aliases_str = ', '.join(self.aliases) if self.aliases else 'N/A'
+        fragmentos = "\n".join(f"  → {s[:250]}" for s in oraciones[:4])
         prompt = (
-            f"Eres analista de reputación corporativa. Evalúa el impacto DIRECTO sobre '{marca}' "
-            f"(alias: {aliases_str}) en estos fragmentos.\n\n"
-            f"REGLAS ESENCIALES:\n"
-            f"1. NO evalúes el tono general de la noticia. Evalúa SOLO cómo sale {marca}.\n"
-            f"2. POSITIVO: {marca} logra algo, anuncia algo bueno, crece, es reconocida, "
-            f"produce más, abre mercados, lidera iniciativas.\n"
-            f"3. NEGATIVO: {marca} es criticada, sancionada, investigada, acusada, "
-            f"se le encuentra fraude/corrupción/irregularidades.\n"
-            f"4. NEUTRO: {marca} solo se menciona sin juicio, advierte sobre el sector, "
-            f"la noticia es del sector pero no habla de {marca}, "
-            f"o la noticia es positiva del sector pero {marca} no es protagonista.\n"
-            f"5. 'Producción superior', 'récord', 'crecimiento' → Positivo si {marca} está involucrada.\n"
-            f"6. Crisis o alertas del sector → Neutro para {marca} a menos que sea culpada directamente.\n\n"
-            f"FRAGMENTOS:\n{fragmentos}\n\n"
-            f'Responde SOLO con JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
+            f"Evalúa sentimiento hacia '{self.marca}' (alias: {', '.join(self.aliases) if self.aliases else 'N/A'}).\n"
+            f"REGLAS: Solo '{self.marca}'. Competidor negativo=Neutro. No protagonista=Neutro.\n"
+            f"ORACIONES:\n{fragmentos}\nCONTEXTO:\n{texto[:300]}...\n"
+            f'JSON: {{"tono":"Positivo|Negativo|Neutro"}}'
         )
         try:
             resp = await acall_with_retries(
@@ -1315,8 +1175,6 @@ class ClasificadorTono:
     async def _clasificar(self, texto, sem):
         async with sem:
             om = self._extraer_oraciones_marca(texto)
-            if not om:
-                return {"tono": "Neutro"}
             r = self._reglas(om)
             if r:
                 return {"tono": r}
@@ -1362,15 +1220,13 @@ def analizar_tono_con_pkl(textos, pkl_file):
 
 
 # ======================================
-# SUBTEMAS  (con umbrales adaptativos)
+# SUBTEMAS
 # ======================================
 class ClasificadorSubtema:
     def __init__(self, marca, aliases):
         self.marca = marca
         self.aliases = aliases or []
         self._cache = {}
-        # Se inicializa en procesar_lote con los umbrales del corpus
-        self._umbrales: dict = {}
 
     def _paso1(self, titulos, resumenes, dsu):
         def nt(t, n):
@@ -1400,67 +1256,7 @@ class ClasificadorSubtema:
                 if SequenceMatcher(None, norm[i], norm[j]).ratio() >= SIMILARITY_THRESHOLD_TITULOS:
                     dsu.union(i, j)
 
-    def _paso2b_keywords(self, titulos, dsu, ae):
-        """
-        Agrupa por keywords raras — pero SOLO si la similitud semántica real
-        entre los dos textos supera sim_minima_keywords.
-        Esto evita que una palabra compartida por azar agrupe noticias distintas.
-        """
-        sim_min = self._umbrales.get('sim_minima_keywords', SIM_MINIMA_KEYWORDS_RARAS)
-        stop = {
-            'el','la','los','las','un','una','unos','unas','de','del','al',
-            'en','con','por','para','que','se','su','sus','es','son','fue',
-            'como','mas','pero','sin','sobre','entre','tras','esta','este',
-            'esto','hay','ser','han','ha','ya','muy','otro','otra','otros',
-            'otras','todo','toda','todos','todas','puede','desde','hasta',
-            'donde','cuando','quien','cual','cada','nos','les','ante','bajo',
-            'nueva','nuevo','nuevos','nuevas','forma','hace','asi','sera',
-            'segun','tiene','fueron','sido','hacer','dice','dijo','tambien',
-        }
-        titulo_words = []
-        for t in titulos:
-            ws = set()
-            for w in re.findall(r'[a-z]+', unidecode(str(t).lower())):
-                if len(w) >= 5 and w not in stop:
-                    ws.add(w)
-            titulo_words.append(ws)
-        word_freq = Counter()
-        for ws in titulo_words:
-            for w in ws:
-                word_freq[w] += 1
-        n = len(titulos)
-        max_freq = max(2, int(n * 0.03))
-        rare_index = defaultdict(list)
-        for i, ws in enumerate(titulo_words):
-            for w in ws:
-                if 2 <= word_freq[w] <= max_freq:
-                    rare_index[w].append(i)
-        # Verificar similitud semántica real antes de unir
-        for idxs in rare_index.values():
-            for a in range(len(idxs)):
-                for b in range(a + 1, len(idxs)):
-                    ia, ib = idxs[a], idxs[b]
-                    if dsu.find(ia) == dsu.find(ib):
-                        continue
-                    ea, eb = ae[ia], ae[ib]
-                    if ea is None or eb is None:
-                        continue
-                    sim = cosine_similarity(
-                        np.array(ea).reshape(1, -1),
-                        np.array(eb).reshape(1, -1)
-                    )[0][0]
-                    if sim >= sim_min:
-                        dsu.union(ia, ib)
-
     def _paso3(self, et, ae, dsu, pbar, ps):
-        """
-        Clustering semántico con verificación post-hoc de similitud mínima.
-        Después del clustering, cualquier par en el mismo grupo cuya similitud
-        sea menor que sim_minima_agrupacion se separa (el miembro más lejano
-        del centroide queda en su propio grupo).
-        """
-        umbral_cluster = self._umbrales.get('subtema', UMBRAL_SUBTEMA)
-        sim_min = self._umbrales.get('sim_minima_agrupacion', SIM_MINIMA_AGRUPACION_SUBTEMA)
         n = len(et)
         if n < 2:
             return
@@ -1471,49 +1267,20 @@ class ClasificadorSubtema:
             if len(ok) < 2:
                 return
             io_, M = zip(*ok)
-            sim_matrix = cosine_similarity(np.array(M))
-
-            # Con pocos elementos (n ≤ 10) usamos enlace completo para
-            # que el umbral sea la similitud MÍNIMA del grupo, no la promedio.
-            linkage = 'complete' if n <= 10 else 'average'
+            sim = cosine_similarity(np.array(M))
             labels = AgglomerativeClustering(
-                n_clusters=None, distance_threshold=1 - umbral_cluster,
-                metric='precomputed', linkage=linkage
-            ).fit(1 - sim_matrix).labels_
+                n_clusters=None, distance_threshold=1 - UMBRAL_SUBTEMA,
+                metric='precomputed', linkage='average'
+            ).fit(1 - sim).labels_
             g = defaultdict(list)
             for k, lbl in enumerate(labels):
                 g[lbl].append(io_[k])
-
-            # Post-hoc: verificar que cada miembro supera sim_min con el centroide
             for cl in g.values():
-                if len(cl) < 2:
-                    continue
-                vecs = np.array([ae[i] for i in cl if ae[i] is not None])
-                if len(vecs) < 2:
-                    continue
-                centroid = np.mean(vecs, axis=0)
-                sims_al_centroid = cosine_similarity(vecs, centroid.reshape(1, -1)).flatten()
-                # Solo une si TODOS superan sim_min; si alguno no, lo dejamos solo
-                todos_ok = all(s >= sim_min for s in sims_al_centroid)
-                if todos_ok:
+                if len(cl) >= 2:
                     for j in cl[1:]:
                         dsu.union(cl[0], j)
-                else:
-                    # Une solo los que superan sim_min con el más central
-                    mejor_idx = int(np.argmax(sims_al_centroid))
-                    repr_vec = np.array(ae[cl[mejor_idx]]).reshape(1, -1)
-                    for k_local, i_global in enumerate(cl):
-                        if ae[i_global] is None:
-                            continue
-                        sim_vs_repr = cosine_similarity(
-                            np.array(ae[i_global]).reshape(1, -1), repr_vec
-                        )[0][0]
-                        if sim_vs_repr >= sim_min:
-                            dsu.union(cl[mejor_idx], i_global)
             pbar.progress(ps + 0.18, "Clustering completado")
             return
-
-        # Corpus grande: batches
         tb = max(1, (n + B - 1) // B)
         for bn_, bs in enumerate(range(0, n, B)):
             bi = list(range(bs, min(bs + B, n)))
@@ -1521,43 +1288,25 @@ class ClasificadorSubtema:
             if len(ok) < 2:
                 continue
             io_, M = zip(*ok)
-            sim_matrix = cosine_similarity(np.array(M))
+            sim = cosine_similarity(np.array(M))
             labels = AgglomerativeClustering(
-                n_clusters=None, distance_threshold=1 - umbral_cluster,
+                n_clusters=None, distance_threshold=1 - UMBRAL_SUBTEMA,
                 metric='precomputed', linkage='average'
-            ).fit(1 - sim_matrix).labels_
+            ).fit(1 - sim).labels_
             g = defaultdict(list)
             for k, lbl in enumerate(labels):
                 g[lbl].append(io_[k])
             for cl in g.values():
-                if len(cl) < 2:
-                    continue
-                vecs = np.array([ae[i] for i in cl if ae[i] is not None])
-                if len(vecs) < 2:
-                    continue
-                centroid = np.mean(vecs, axis=0)
-                sims = cosine_similarity(vecs, centroid.reshape(1, -1)).flatten()
-                mejor_idx = int(np.argmax(sims))
-                repr_vec = np.array(ae[cl[mejor_idx]]).reshape(1, -1)
-                for k_local, i_global in enumerate(cl):
-                    if ae[i_global] is None:
-                        continue
-                    s = cosine_similarity(np.array(ae[i_global]).reshape(1, -1), repr_vec)[0][0]
-                    if s >= sim_min:
-                        dsu.union(cl[mejor_idx], i_global)
+                if len(cl) >= 2:
+                    for j in cl[1:]:
+                        dsu.union(cl[0], j)
             pbar.progress(ps + 0.15 * (bn_ + 1) / tb, f"Clustering {bn_ + 1}/{tb}...")
-
         pbar.progress(ps + 0.16, "Unificando...")
-        usar_fusion = self._umbrales.get('usar_fusion_iterativa', True)
-        if usar_fusion:
-            self._fusion(et, ae, dsu, pbar, ps + 0.16)
+        self._fusion(et, ae, dsu, pbar, ps + 0.16)
 
     def _fusion(self, textos, ae, dsu, pbar, ps):
         n = len(textos)
-        umbral_inter = self._umbrales.get('fusion_intergrupo', UMBRAL_FUSION_INTERGRUPO)
-        max_iter = self._umbrales.get('max_iter_fusion', MAX_ITER_FUSION)
-        sim_min = self._umbrales.get('sim_minima_agrupacion', SIM_MINIMA_AGRUPACION_SUBTEMA)
-        for it in range(max_iter):
+        for it in range(MAX_ITER_FUSION):
             grupos = dsu.grupos(n)
             if len(grupos) < 2:
                 break
@@ -1570,11 +1319,9 @@ class ClasificadorSubtema:
             if len(vg) < 2:
                 break
             sim = cosine_similarity(np.array(centroids))
-            # Usar el máximo de umbral_inter y sim_min para fusión
-            umbral_efectivo = max(umbral_inter, sim_min)
             pairs = sorted(
                 [(sim[i][j], i, j) for i in range(len(vg)) for j in range(i + 1, len(vg))
-                 if sim[i][j] >= umbral_efectivo],
+                 if sim[i][j] >= UMBRAL_FUSION_INTERGRUPO],
                 reverse=True
             )
             fus = 0
@@ -1821,22 +1568,10 @@ class ClasificadorSubtema:
         return "Cobertura informativa general"
 
     def procesar_lote(self, col, pbar, res_puros, tit_puros):
-        textos   = col.tolist()
-        titulos  = tit_puros.tolist()
+        textos = col.tolist()
+        titulos = tit_puros.tolist()
         resumenes = res_puros.tolist()
         n = len(textos)
-
-        # ── Calcular umbrales adaptativos según tamaño del corpus ──────────
-        self._umbrales = _umbrales_adaptativos(n)
-        u = self._umbrales
-        st.caption(
-            f"📐 Corpus: **{n}** noticias · "
-            f"Umbral subtema: **{u['subtema']}** · "
-            f"Sim mínima: **{u['sim_minima_agrupacion']}** · "
-            f"Paso2b: {'✓' if u['usar_paso2b'] else '✗'} · "
-            f"Fusión iterativa: {'✓' if u['usar_fusion_iterativa'] else '✗'}"
-        )
-
         et = [texto_para_embedding(titulos[i], resumenes[i]) for i in range(n)]
 
         pbar.progress(0.05, "Fase 1 · Idénticas...")
@@ -1844,15 +1579,8 @@ class ClasificadorSubtema:
         self._paso1(titulos, resumenes, dsu)
         pbar.progress(0.12, "Fase 2 · Títulos...")
         self._paso2(titulos, dsu)
-
         pbar.progress(0.18, "Embeddings...")
         ae = get_embeddings_batch(et)
-
-        # Paso 2b: keywords raras — solo si el corpus es suficientemente grande
-        if u['usar_paso2b']:
-            pbar.progress(0.15, "Fase 2b · Keywords raras (con validación semántica)...")
-            self._paso2b_keywords(titulos, dsu, ae)
-
         pbar.progress(0.20, "Fase 3 · Clustering...")
         self._paso3(et, ae, dsu, pbar, 0.20)
 
@@ -1886,7 +1614,6 @@ class ClasificadorSubtema:
         subtemas = [mapa.get(i, "Varios") for i in range(n)]
 
         pbar.progress(0.80, "Fase 4b · Coherencia etiqueta↔texto...")
-        umbral_coherencia = u['coherencia_etiqueta']
         subtemas_unicos = list(set(subtemas))
         embs_sub_lista = get_embeddings_batch(subtemas_unicos)
         emb_subtemas = {sub: emb for sub, emb in zip(subtemas_unicos, embs_sub_lista) if emb is not None}
@@ -1902,45 +1629,29 @@ class ClasificadorSubtema:
                 np.array(emb_txt).reshape(1, -1),
                 np.array(emb_sub).reshape(1, -1)
             )[0][0]
-            if sim < umbral_coherencia:
-                mejor_sub, mejor_sim = sub, sim
-                for otro_sub, emb_otro in emb_subtemas.items():
-                    if otro_sub == sub:
-                        continue
-                    sim_otro = cosine_similarity(
-                        np.array(emb_txt).reshape(1, -1),
-                        np.array(emb_otro).reshape(1, -1)
-                    )[0][0]
-                    if sim_otro > mejor_sim:
-                        mejor_sim = sim_otro
-                        mejor_sub = otro_sub
-                if mejor_sub != sub and mejor_sim > umbral_coherencia:
-                    subtemas[i] = mejor_sub
-                else:
-                    nueva = self._generar_etiqueta([textos[i]], [titulos[i]], [resumenes[i]])
-                    subtemas[i] = capitalizar_etiqueta(nueva)
+            if sim < UMBRAL_COHERENCIA_ETIQUETA:
+                nueva = self._generar_etiqueta([textos[i]], [titulos[i]], [resumenes[i]])
+                subtemas[i] = capitalizar_etiqueta(nueva)
                 incoherentes += 1
 
         if incoherentes:
             st.caption(f"ℹ️ Fase 4b: {incoherentes} noticias reclasificadas por baja coherencia etiqueta↔texto.")
 
         pbar.progress(0.82, "Fase 5 · Dedup...")
-        subtemas = dedup_labels(subtemas, u['dedup_label'])
+        subtemas = dedup_labels(subtemas, UMBRAL_DEDUP_LABEL)
 
         pbar.progress(0.86, "Fase 5b · Fusión semántica...")
         textos_por_sub = defaultdict(list)
         for i, s in enumerate(subtemas):
             textos_por_sub[s].append(textos[i])
         n_antes = len(set(subtemas))
-        subtemas = _fusionar_subtemas_semanticos(
-            subtemas, textos_por_sub, self.marca, self.aliases, u['fusion_subtemas']
-        )
+        subtemas = _fusionar_subtemas_semanticos(subtemas, textos_por_sub, self.marca, self.aliases, UMBRAL_FUSION_SUBTEMAS)
         n_despues = len(set(subtemas))
         if n_antes != n_despues:
             pbar.progress(0.89, f"Fusión: {n_antes}→{n_despues}")
 
         pbar.progress(0.90, "Fase 6 · Consistencia...")
-        subtemas = self._consistencia(subtemas, ae, pbar, u)
+        subtemas = self._consistencia(subtemas, ae, pbar)
 
         indices_reclass = [i for i, s in enumerate(subtemas) if s == "_RECLASIFICAR"]
         if indices_reclass:
@@ -1949,80 +1660,8 @@ class ClasificadorSubtema:
                 et_ind = self._generar_etiqueta([textos[i]], [titulos[i]], [resumenes[i]])
                 subtemas[i] = capitalizar_etiqueta(et_ind)
 
-        pbar.progress(0.93, "Fase 7 · Completitud...")
+        pbar.progress(0.95, "Fase 7 · Completitud...")
         subtemas = self._validar_completitud_final(subtemas, textos, titulos, resumenes)
-
-        pbar.progress(0.97, "Fase 8 · Dedup final...")
-        subtemas = dedup_labels(subtemas, u['dedup_label'])
-        textos_por_sub2 = defaultdict(list)
-        for i, s in enumerate(subtemas):
-            textos_por_sub2[s].append(textos[i])
-        subtemas = _fusionar_subtemas_semanticos(
-            subtemas, textos_por_sub2, self.marca, self.aliases, u['fusion_subtemas']
-        )
-
-        # ── Coherencia final: forzar fusion de subtemas equivalentes ──
-        # Ejemplo concreto a evitar:
-        #   "Dipping de tendencias gastronomicas" vs
-        #   "Tendencia global en sabores para pollo"
-        # Mismo evento, labels distintos de LLM → fusionar por similitud.
-        pbar.progress(0.98, "Coherencia final de subtemas...")
-        orig_unicos = list(dict.fromkeys(subtemas))
-        if len(orig_unicos) >= 2:
-            # Mapping: cada label original → su canonical (inicia en si mismo)
-            cano_map: Dict[str, str] = {s: s for s in orig_unicos}
-
-            emb_subs = get_embeddings_batch(orig_unicos)
-            valid_pairs = [
-                (i, emb_subs[i])
-                for i in range(len(orig_unicos))
-                if emb_subs[i] is not None
-            ]
-            if len(valid_pairs) >= 2:
-                v_idx, v_emb = zip(*valid_pairs)
-                sim_subs = cosine_similarity(np.array(v_emb))
-                for pi in range(len(v_idx)):
-                    for pj in range(pi + 1, len(v_idx)):
-                        oi = v_idx[pi]
-                        oj = v_idx[pj]
-                        cano_i = cano_map[orig_unicos[oi]]
-                        cano_j = cano_map[orig_unicos[oj]]
-                        if cano_i == cano_j:
-                            continue
-                        merged = False
-                        # Criterio 1: embeddings coseno >= 0.87
-                        if sim_subs[pi][pj] >= 0.87:
-                            merged = True
-                        # Criterio 2: Jaccard tokens >= 0.45
-                        if not merged:
-                            ti = set(string_norm_label(orig_unicos[oi]).split())
-                            tj = set(string_norm_label(orig_unicos[oj]).split())
-                            if len(ti) >= 2 and len(tj) >= 2:
-                                jac = len(ti & tj) / len(ti | tj)
-                                if jac >= 0.45:
-                                    merged = True
-                        if merged:
-                            # El mas frecuente gana
-                            freq_i = sum(1 for s in subtemas if cano_map.get(s) == cano_i)
-                            freq_j = sum(1 for s in subtemas if cano_map.get(s) == cano_j)
-                            winner = cano_i if freq_i >= freq_j else cano_j
-                            loser = cano_j if winner == cano_i else cano_i
-                            for k in cano_map:
-                                if cano_map[k] == loser:
-                                    cano_map[k] = winner
-
-            # Aplicar mapeo
-            n_antes = len(set(subtemas))
-            subtemas = [cano_map.get(s, s) for s in subtemas]
-            n_despues = len(set(subtemas))
-            if n_antes != n_despues:
-                st.caption(
-                    f"ℹ️ Coherencia final: {n_antes} subtemas → {n_despues} "
-                    f"({n_antes - n_despues} fusionado(s) por equivalencia)"
-                )
-
-        # ── dedup final + capitalización ──
-        subtemas = dedup_labels(subtemas, u['dedup_label'])
         subtemas = [capitalizar_etiqueta(s) for s in subtemas]
         nf = len(set(subtemas))
         pbar.progress(1.0, f"{nf} subtemas")
@@ -2052,10 +1691,7 @@ class ClasificadorSubtema:
                 resultado[i] = capitalizar_etiqueta(nueva)
         return resultado
 
-    def _consistencia(self, subtemas, ae, pbar, umbrales=None):
-        if umbrales is None:
-            umbrales = self._umbrales
-        min_sub = umbrales.get('min_pertenencia_subtema', UMBRAL_MIN_PERTENENCIA_SUBTEMA)
+    def _consistencia(self, subtemas, ae, pbar):
         ps = defaultdict(list)
         for i, s in enumerate(subtemas):
             ps[s].append(i)
@@ -2090,13 +1726,13 @@ class ClasificadorSubtema:
                         bs = os_
                 if bs != sub:
                     r[oi] = bs
-                elif sv < min_sub:
+                elif sv < UMBRAL_MIN_PERTENENCIA_SUBTEMA:
                     r[oi] = "_RECLASIFICAR"
         return r
 
 
 # ======================================
-# TEMAS  (con umbrales adaptativos)
+# TEMAS
 # ======================================
 def _construir_representacion_grupo(subtema, textos_grupo, max_textos=30):
     palabras = []
@@ -2224,23 +1860,12 @@ def _regenerar_tema_diferente(subtemas_grupo, titulos_muestra, intento=0):
 
 
 def consolidar_temas(subtemas, textos, pbar):
-    n = len(textos)
-    u = _umbrales_adaptativos(n)
-
     pbar.progress(0.05, "Preparando temas...")
     df = pd.DataFrame({'subtema': subtemas, 'texto': textos})
     us = list(df['subtema'].unique())
     if len(us) <= 1:
         pbar.progress(1.0, "Un tema")
         return [capitalizar_etiqueta(s) for s in subtemas]
-
-    # Con corpus muy pequeño: si hay tantos subtemas únicos como noticias,
-    # NO agrupar — cada noticia ya tiene su propio subtema correcto.
-    if n <= 5 and len(us) == n:
-        pbar.progress(1.0, "Corpus pequeño: temas = subtemas")
-        st.info(f"Temas: **{n}** (corpus pequeño — cada noticia tiene tema propio)")
-        return [capitalizar_etiqueta(s) for s in subtemas]
-
     pbar.progress(0.10, "Representaciones...")
     textos_por_subtema = defaultdict(list)
     for i, sub in enumerate(subtemas):
@@ -2279,25 +1904,17 @@ def consolidar_temas(subtemas, textos, pbar):
         )
     else:
         sim_combined = sim_content
-
     pbar.progress(0.45, "Clustering temas...")
     dist_matrix = np.clip(1 - sim_combined, 0, 2)
     np.fill_diagonal(dist_matrix, 0)
-
-    umbral_tema = u['tema']
-    num_temas_max = u['num_temas_max']
-
-    # Con pocos subtemas usamos enlace completo (más conservador)
-    linkage_temas = 'complete' if len(vs) <= 6 else 'average'
     cl = AgglomerativeClustering(
-        n_clusters=None, distance_threshold=1 - umbral_tema,
-        metric='precomputed', linkage=linkage_temas
+        n_clusters=None, distance_threshold=1 - UMBRAL_TEMA,
+        metric='precomputed', linkage='average'
     ).fit(dist_matrix)
-    if len(set(cl.labels_)) > num_temas_max:
+    if len(set(cl.labels_)) > NUM_TEMAS_MAX:
         cl = AgglomerativeClustering(
-            n_clusters=num_temas_max, metric='precomputed', linkage=linkage_temas
+            n_clusters=NUM_TEMAS_MAX, metric='precomputed', linkage='average'
         ).fit(dist_matrix)
-
     clusters = defaultdict(list)
     for i, lbl in enumerate(cl.labels_):
         clusters[lbl].append(vs[i])
@@ -2356,7 +1973,6 @@ def consolidar_temas(subtemas, textos, pbar):
         mt[sub] = capitalizar_etiqueta(sub)
 
     pbar.progress(0.87, "Validando pertenencia mínima a temas...")
-    min_tema = u['min_pertenencia_tema']
     tf_inicial = [mt.get(sub, sub) for sub in subtemas]
     tema_agrupacion: Dict[str, list] = defaultdict(list)
     for i, tema in enumerate(tf_inicial):
@@ -2374,7 +1990,7 @@ def consolidar_temas(subtemas, textos, pbar):
                 np.array(emb).reshape(1, -1),
                 tema_centroids[tema_asignado].reshape(1, -1)
             )[0][0]
-            if sim < min_tema:
+            if sim < UMBRAL_MIN_PERTENENCIA_TEMA:
                 tf_validado.append(capitalizar_etiqueta(_recortar_frase_completa(sub, max_palabras=4)))
                 n_forzadas += 1
                 continue
@@ -2383,7 +1999,7 @@ def consolidar_temas(subtemas, textos, pbar):
         st.caption(f"ℹ️ {n_forzadas} noticias con baja pertenencia al tema agrupado → tema propio asignado.")
 
     pbar.progress(0.88, "Dedup temas...")
-    tf_validado = dedup_labels(tf_validado, u['dedup_label'])
+    tf_validado = dedup_labels(tf_validado, UMBRAL_DEDUP_LABEL)
 
     pbar.progress(0.90, "Fusionando temas solapados...")
     mapa_fusion_temas = _fusionar_temas_contenidos(tf_validado)
@@ -2399,8 +2015,7 @@ def consolidar_temas(subtemas, textos, pbar):
         capitalizar_etiqueta(_recortar_frase_completa(t) if not _frase_esta_completa(t) else t)
         for t in tf_validado
     ]
-    tf_validado = _unificar_tema_por_subtema(tf_validado, subtemas)
-    st.info(f"Temas: **{len(set(tf_validado))}** (de {len(set(subtemas))} subtemas) · Máx: {num_temas_max}")
+    st.info(f"Temas: **{len(set(tf_validado))}** (de {len(set(subtemas))} subtemas) · Máx: {NUM_TEMAS_MAX}")
     pbar.progress(1.0, "Temas listos")
     return tf_validado
 
@@ -2470,16 +2085,6 @@ def _post_validar_tema_vs_subtema(temas, subtemas):
     return [reemplazos.get(t, t) for t in temas] if reemplazos else temas
 
 
-def _unificar_tema_por_subtema(temas, subtemas):
-    sub_to_temas = defaultdict(list)
-    for t, s in zip(temas, subtemas):
-        sub_to_temas[s].append(t)
-    sub_to_best = {}
-    for sub, tema_list in sub_to_temas.items():
-        sub_to_best[sub] = Counter(tema_list).most_common(1)[0][0]
-    return [sub_to_best[s] for s in subtemas]
-
-
 def analizar_temas_con_pkl(textos, pkl_file):
     try:
         pipeline = joblib.load(pkl_file)
@@ -2494,16 +2099,36 @@ def analizar_temas_con_pkl(textos, pkl_file):
 # ======================================
 
 def _normalizar_url(url: str) -> str:
+    """
+    Normaliza una URL para comparación de duplicados:
+    - Convierte a minúsculas
+    - Elimina el esquema (http:// / https://)
+    - Elimina el subdominio 'www.' si está presente
+    - Elimina la barra final si existe
+
+    Ejemplos equivalentes tras normalización:
+      https://elpais.com.co/nota-123  →  elpais.com.co/nota-123
+      https://www.elpais.com.co/nota-123  →  elpais.com.co/nota-123
+      http://WWW.ElPais.com.co/nota-123  →  elpais.com.co/nota-123
+    """
     if not url:
         return ""
     url = url.strip().lower()
+    # Quitar esquema
     url = re.sub(r'^https?://', '', url)
+    # Quitar www. inicial
     url = re.sub(r'^www\.', '', url)
+    # Quitar barra final
     url = url.rstrip('/')
     return url
 
 
 def _extraer_url_streaming(row, km):
+    """
+    Extrae la URL incrustada en la celda Link (Streaming - Imagen).
+    La celda puede ser un dict con clave 'url' (ya procesada por extract_link)
+    o un string plano.
+    """
     ls_key = km.get("link_streaming")
     if not ls_key:
         return None
@@ -2519,6 +2144,7 @@ def _extraer_url_streaming(row, km):
 def detectar_duplicados_avanzado(rows, km):
     processed = deepcopy(rows)
     seen_url, seen_bcast = {}, {}
+    # Diccionario clave → índice, usando URL normalizada para streaming
     seen_streaming: Dict[tuple, int] = {}
     tb = defaultdict(list)
 
@@ -2530,6 +2156,9 @@ def detectar_duplicados_avanzado(rows, km):
         mencion = norm_key(row.get(km.get("menciones", "")))
         medio   = norm_key(row.get(km.get("medio", "")))
 
+        # ── REGLA: mismo Link (Streaming - Imagen) normalizado + misma Menciones-Empresa ──
+        # Se aplica a TODOS los tipos de medio. La normalización elimina diferencias
+        # entre "https://www.dominio.com/ruta" y "https://dominio.com/ruta".
         streaming_url_raw = _extraer_url_streaming(row, km)
         if streaming_url_raw and mencion:
             streaming_url_norm = _normalizar_url(streaming_url_raw)
@@ -2547,6 +2176,7 @@ def detectar_duplicados_avanzado(rows, km):
             li  = row.get(km.get("link_nota", {})) or {}
             url = li.get("url") if isinstance(li, dict) else None
             if url and mencion:
+                # También normalizar la URL de link_nota para consistencia
                 url_norm = _normalizar_url(url)
                 k = (url_norm, mencion)
                 if k in seen_url:
@@ -2775,7 +2405,7 @@ async def run_full_process_async(df_file, bn, ba, tpkl, epkl, mode):
             if "PKL" in mode and epkl:
                 tp = analizar_temas_con_pkl(df["_txt"].tolist(), epkl)
                 if tp:
-                    df[km["tema"]] = _unificar_tema_por_subtema(tp, subtemas)
+                    df[km["tema"]] = tp
             else:
                 df[km["tema"]] = temas
             s.update(label="✓ Paso 4 · Clasificación", state="complete")
@@ -2921,7 +2551,7 @@ def main():
         <div class="app-header-icon">◈</div>
         <div class="app-header-text">
             <div class="app-header-title">Análisis de Noticias</div>
-            <div class="app-header-version">v17.12 · clustering adaptativo por tamaño de corpus</div>
+            <div class="app-header-version">v17.11 · dedup streaming por URL normalizada (www / https)</div>
         </div>
         <div class="app-header-badge">IA</div>
     </div>""", unsafe_allow_html=True)
@@ -2931,6 +2561,7 @@ def main():
     with tab1:
         if not st.session_state.get("processing_complete", False):
 
+            # ── Modo y PKL FUERA del form para que el radio reactive el UI ──
             st.markdown('<div class="sec-label">Configuración</div>', unsafe_allow_html=True)
             cl, cr = st.columns([3, 2])
             with cl:
@@ -2974,12 +2605,11 @@ def main():
 
                 st.markdown(
                     f'<div class="cluster-info">'
-                    f'<b>Parámetros base</b> · Sub={UMBRAL_SUBTEMA} · Tema={UMBRAL_TEMA} · Máx={NUM_TEMAS_MAX} '
+                    f'<b>Parámetros</b> · Sub={UMBRAL_SUBTEMA} · Tema={UMBRAL_TEMA} · Máx={NUM_TEMAS_MAX} '
                     f'· FusInter={UMBRAL_FUSION_INTERGRUPO} · FusSem={UMBRAL_FUSION_SUBTEMAS} '
                     f'· Dedup={UMBRAL_DEDUP_LABEL} · MinSub={UMBRAL_MIN_PERTENENCIA_SUBTEMA} '
                     f'· MinTema={UMBRAL_MIN_PERTENENCIA_TEMA} · MaxGrupo={MAX_GRUPO_ETIQUETA} · '
-                    f'<b>Coherencia={UMBRAL_COHERENCIA_ETIQUETA}</b> · '
-                    f'<b>SimMin={SIM_MINIMA_AGRUPACION_SUBTEMA}</b> (adaptativos según n)'
+                    f'<b>Coherencia={UMBRAL_COHERENCIA_ETIQUETA}</b>'
                     f'</div>',
                     unsafe_allow_html=True
                 )
@@ -2989,6 +2619,7 @@ def main():
                         st.error("Completa todos los campos.")
                     else:
                         al = [a.strip() for a in bat.split(";") if a.strip()]
+                        # Leer mode/tpkl/epkl del session_state ya que están fuera del form
                         cur_mode = st.session_state.get("mode", "API de OpenAI")
                         cur_tpkl = st.session_state.get("tpkl")
                         cur_epkl = st.session_state.get("epkl")
@@ -3035,7 +2666,7 @@ def main():
         render_quick_tab()
 
     st.markdown(
-        '<div class="footer">v17.12 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
+        '<div class="footer">v17.11 · Análisis de Noticias con IA · Johnathan Cortés ©</div>',
         unsafe_allow_html=True
     )
 
