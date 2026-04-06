@@ -1088,6 +1088,15 @@ def analizar_tono_con_pkl(textos, pkl_file):
         st.error(f"Error pkl: {e}")
         return None
 
+def analizar_temas_con_pkl(textos, pkl_file):
+    try:
+        pipeline = joblib.load(pkl_file)
+        predicciones = pipeline.predict(textos)
+        return [str(p).strip() for p in predicciones]
+    except Exception as e:
+        st.error(f"Error pkl temas: {e}")
+        return None
+
 # ======================================
 # SUBTEMAS
 # ======================================
